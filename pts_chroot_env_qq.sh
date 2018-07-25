@@ -134,7 +134,7 @@ $ENV{PS1} = q~\u@\h:\w\$ ~ if !defined($ENV{PS1}) or
 my $qqdlast = $qqd;
 $qqdlast =~ s@\A.*/@@s;
 $ENV{PS1} = "[qq=$qqdlast] $ENV{PS1}";
-$ENV{SHELL} = "/bin/bash";
+$ENV{SHELL} = -f("/bin/bash") ? "/bin/bash" : "/bin/sh";
 
 # X11, Gnome
 delete @ENV{qw(
@@ -216,7 +216,7 @@ if (@ARGV and $ARGV[0] eq "root") {
       ensure_auth_line("/etc/shadow", "$ENV{SUDO_USER}:*:17633:0:99999:7:::\n");
       ensure_auth_line("/etc/group",  "$ENV{SUDO_USER}:x:$ENV{SUDO_GID}:\n");
       # Do it last, in case of errors with the above.
-      ensure_auth_line("/etc/passwd", "$ENV{SUDO_USER}:x:$ENV{SUDO_UID}:$ENV{SUDO_GID}:qquser $ENV{SUDO_USER}:/home/$ENV{SUDO_USER}:/bin/bash");
+      ensure_auth_line("/etc/passwd", "$ENV{SUDO_USER}:x:$ENV{SUDO_UID}:$ENV{SUDO_GID}:qquser $ENV{SUDO_USER}:/home/$ENV{SUDO_USER}:$ENV{SHELL}");
     }
     # TODO(pts): Do we want to add the original $ENV{HOME} as a symlink?
     my $home = "/home/$ENV{SUDO_USER}";
@@ -240,7 +240,8 @@ if (@ARGV and $ARGV[0] eq "root") {
 }
 $ENV{LOGNAME} = $ENV{USER} = $ENV{USERNAME} = $username;
 delete @ENV{"SUDO_COMMAND", "SUDO_GID", "SUDO_UID", "SUDO_USER"};
-push @ARGV, "/bin/bash", "--norc" if !@ARGV;
+push @ARGV, ($ENV{SHELL} eq "/bin/bash") ?
+    ("/bin/bash", "--norc") : ("/bin/sh") if !@ARGV;
 
 # In $ENV{PATH} keep everything below $qqd and $ENV{HOME}, deduplicate those,
 # and then add system path.
