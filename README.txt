@@ -1,8 +1,9 @@
 pts-chroot-env-qq: convenient chroot entry point
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-pts_chroot_env_qq.sh is script (containing shell and Perl code) which lets the
-user conveniently enter a chroot environment on Unix systems. It's a
-combination of sudo + chroot + cd + setting some the environment variables.
+pts_chroot_env_qq.sh is script (containing shell and Perl code) which lets
+the user conveniently enter a chroot environment on Unix systems. It's a
+combination of sudo + chroot + su to regular user + cd + setting some the
+environment variables.
 
 Convenience functionality provided by pts_chroot_env_qq.sh:
 
@@ -11,6 +12,11 @@ Convenience functionality provided by pts_chroot_env_qq.sh:
   you back to your directory.
 * It propagates all environment variables (overriding only a few of them)
   by default.
+* It setuids back to the regular (non-root) user who called it. This way
+  you can conveniently (and by default) run commands within a chroot
+  environment as non-root. 
+* It doesn't run sudo or su within the chroot, so your environment variables
+  won't be clobbered.
 * It doesn't run a shell if you specify a command, so your environment
   variables won't be clobbered by e.g. /etc/bash.bashrc.
 * Even for the default interactive shell, it calls it with bash --norc, to
