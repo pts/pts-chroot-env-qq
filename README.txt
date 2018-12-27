@@ -88,5 +88,15 @@ Usage:
   files even is a regular (non-root) user between the chroot and the host.
 * To install packages to a Debian or Ubuntu chroot, first run
   `qq apt-get update', then run `qq apt-get install PACKAGENAME'.
+* To install an initial chroot environment on Linux i386 or amd64 systems
+  using pts-debootstrap (https://github.com/pts/pts-debootstrap/), run
+  `qq debootrap DISTRO TARGETDIR', e.g.
+
+    $ qq pts-debootstrap feisty feisty_dir
+    $ cd feisty_dir
+    $ bash --version | head -1  # Host system.
+    GNU bash, version 4.4.12(1)-release (x86_64-pc-linux-gnu)
+    $ qq bash --version | head -1  # Feisty in chroot.
+    GNU bash, version 3.2.13(1)-release (i486-pc-linux-gnu)
 
 __END__

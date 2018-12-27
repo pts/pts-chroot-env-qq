@@ -6,7 +6,64 @@
 # This shell script works with bash, zsh, dash and busybox sh.
 #
 
+__qq_pts_debootstrap__() {
+  if test -z "$1" || test "$1" == --help || test $# -lt 2; then
+    echo "Usage:   $0 pts-debootstrap [<flag>...] <debian-distro-name> <target-dir>" >&2
+    echo "Example: $0 pts-debootstrap feisty feisty_dir"
+    exit 1
+  fi
+  local ARG DIR=
+  for ARG in "$@"; do
+    DIR="$ARG"
+  done
+  # Example: $ wget http://pts.50.hu/files/pts-debootstrap/pts-debootstrap-latest.sfx.7z
+  local URL=https://raw.githubusercontent.com/pts/pts-debootstrap/master/README.txt
+  local S="$(wget -qO- "$URL")"
+  if test -z "$S"; then
+    echo "qq: fatal: could download URL: $URL" >&2
+    exit 101
+  fi
+  local URL="$(echo "$S" | while read A B URL; do
+        if test "$A" = \$ && test "$B" = wget &&
+           (test "${URL#http://}" != "$URL" || test "${URL#https://}" != "$URL") &&
+           test "${URL%/pts-debootstrap-latest.sfx.7z}" != "$URL"; then
+          echo "$URL"
+          while read LINE; do :; done
+          break
+        fi
+      done)"
+  if test -z "$URL"; then
+    echo "qq: fatal: could not find URL of pts-debootstrap-latest.sfx.7z" >&2
+    exit 102
+  fi
+  rm -rf "$DIR.pts-debootstrap"
+  mkdir -p "$DIR.pts-debootstrap"
+  if wget -qO "$DIR.pts-debootstrap/pts-debootstrap-latest.sfx.7z" "$URL" &&
+     test -s "$DIR.pts-debootstrap/pts-debootstrap-latest.sfx.7z"; then
+    :
+  else
+    echo "qq: fatal: could download URL: $URL" >&2
+    exit 103
+  fi
+  if ! ( cd "$DIR.pts-debootstrap" &&
+    chmod 755 pts-debootstrap-latest.sfx.7z &&
+    ./pts-debootstrap-latest.sfx.7z -y >/dev/null); then
+    echo "qq: fatal: error extracting pts-debootstrap-latest.sfz.7z" >&2
+    exit 103
+  fi
+  exit
+  sudo "$DIR.pts-debootstrap/pts-debootstrap/pts-debootstrap" "$@"
+  local STATUS="$?"
+  rm -rf "$DIR.pts-debootstrap"
+  exit "$?"
+}
+
 __qq__() {
+  if test "$1" = pts-debootstrap; then
+    shift
+    __qq_pts_debootstrap__ "$@"
+    return
+  fi
   local __QQD__="$PWD" __QQFOUND__
   test "${__QQD__#/}" = "$__QQD__" && __QQD__="$(pwd)"
   if test "${__QQD__#/}" = "$__QQD__"; then
