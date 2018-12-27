@@ -287,7 +287,7 @@ if (@ARGV and $ARGV[0] eq "cd" and !$is_root_cmd) {
   exit;
 }
 
-# TODO(pts): Run qqinbashrc now? 
+# TODO(pts): Run qqinbashrc now?
 #            If it exists, then run @ARGV with bash (properly quote it first).
 
 # exec(...) also prints a detailed error message.
