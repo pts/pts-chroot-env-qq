@@ -234,7 +234,7 @@ if (@ARGV and $ARGV[0] eq "root") {
         $( != $ENV{SUDO_GID} or $) != $ENV{SUDO_GID};
     ($<, $>) = ($ENV{SUDO_UID}, $ENV{SUDO_UID});
     die "qqin: fatal: setuid failed\n" if
-        $( != $ENV{SUDO_UID} or $) != $ENV{SUDO_UID};
+        $( != $ENV{SUDO_GID} or $) != $ENV{SUDO_GID};
     $is_root = 0;
   }
 }
