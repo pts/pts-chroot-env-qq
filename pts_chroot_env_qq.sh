@@ -170,9 +170,15 @@ delete @ENV{"LANG", "LANGUAGE", "LC_CTYPE", "LC_NUMERIC", "LC_TIME",
             "LC_COLLATE", "LC_MONETARY", "LC_MESSAGES", "LC_PAPER", "LC_NAME",
             "LC_ADDRESS", "LC_TELEPHONE", "LC_MEASUREMENT", "LC_IDENTIFICATION",
             "LC_ALL"};
-my $encoding = $lc_ctype =~ m@[.](.*)\Z(?!\n)@s ? $1 : "UTF-8";
-$encoding = "UTF-8" if $encoding =~ m@\Autf-?8@i;
-$ENV{LC_CTYPE} = "en_US.$encoding";
+if (-f("/usr/lib/locale/locale-archive")) {
+  my $encoding = $lc_ctype =~ m@[.](.*)\Z(?!\n)@s ? $1 : "UTF-8";
+  $encoding = "UTF-8" if $encoding =~ m@\Autf-?8@i;
+  $ENV{LC_CTYPE} = "en_US.$encoding";
+  delete $ENV{LC_CTYPE} if (readpipe("locale 2>&1") or "") =~
+      /: Cannot set LC_CTYPE to default locale:/;
+} else {
+  delete $ENV{LC_CTYPE};
+}
 
 # Returns true iff entry was already there.
 sub ensure_auth_line($$;$) {
