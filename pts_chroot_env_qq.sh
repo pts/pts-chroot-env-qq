@@ -286,7 +286,7 @@ if (@ARGV and $ARGV[0] eq "cd" and !$is_root_cmd) {
 
 # exec(...) also prints a detailed error message.
 die "qqin: fatal: exec $ARGV[0]: $!\n" if !exec(@ARGV);
-' __QQD__="$__QQD__" __QQPATH__="$PATH" __QQLCALL__="$LC_ALL" PWD="$PWD" LC_ALL=C sudo -E chroot "$__QQD__" /usr/bin/perl -w -e 'eval $ENV{__QQIN__}; die $@ if $@' "$@"
+' __QQD__="$__QQD__" __QQPATH__="$PATH" __QQLCALL__="$LC_ALL" PWD="$PWD" LC_ALL=C exec sudo -E chroot "$__QQD__" /usr/bin/perl -w -e 'eval $ENV{__QQIN__}; die $@ if $@' "$@"
   # Above setting LC_ALL=C instead of PERL_BADLANG=x, to prevent locale warnings.
 }
 
