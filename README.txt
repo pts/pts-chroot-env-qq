@@ -86,5 +86,7 @@ Usage:
 * Alternatively, run qq cd to see a writable directory name which works
   inside and outside the chroot. You can use this directory to transfer
   files even is a regular (non-root) user between the chroot and the host.
+* To install packages to a Debian or Ubuntu chroot, first run
+  `qq apt-get update', then run `qq apt-get install PACKAGENAME'.
 
 __END__
