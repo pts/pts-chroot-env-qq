@@ -8,7 +8,15 @@
 
 __qq__() {
   local __QQD__="$PWD" __QQFOUND__
-  while true; do
+  test "${__QQD__#/}" = "$__QQD__" && __QQD__="$(pwd)"
+  if test "${__QQD__#/}" = "$__QQD__"; then
+    echo "qq: fatal: cannot find current directory: $__QQD__" >&2
+    return 123
+  fi
+  while test "${__QQD__#//}" != "$__QQD__"; do
+    __QQD__="${__QQD__#/}"  # Remove duplicate leading slashes.
+  done
+  while test "$__QQD__"; do
     __QQFOUND__=1
     if test -x "$__QQD__/usr/bin/perl"; then
       test -x "$__QQD__/sbin/init" && test -f "$__QQD__/etc/issue" && break
