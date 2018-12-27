@@ -268,7 +268,7 @@ push @ARGV, ($ENV{SHELL} eq "/bin/bash") ?
 }
 
 if (@ARGV and $ARGV[0] eq "cd" and !$is_root_cmd) {
-  # Print the name of the user-writable root directory, and exit.
+  # Print the name of the user-writable home directory, and exit.
   print "$qqd$ENV{HOME}\n";
   exit;
 }
