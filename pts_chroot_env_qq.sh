@@ -74,7 +74,7 @@ __qq__() {
   done
   while test "$__QQD__"; do
     __QQFOUND__=1
-    if test -x "$__QQD__/usr/bin/perl"; then
+    if test -x "$__QQD__/usr/bin/perl" || test -h "$__QQD__/usr/bin/perl"; then
       test -x "$__QQD__/sbin/init" && test -f "$__QQD__/etc/issue" && break
       test -f "$__QQD__/etc/qqsystem" && break
     fi
