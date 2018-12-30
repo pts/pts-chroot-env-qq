@@ -114,11 +114,11 @@ $< = 0;  # setuid(0).
 my $qqd = $ENV{__QQD__};
 my $qqpath = $ENV{__QQPATH__};
 my $pwd = $ENV{PWD};
-my $home = $ENV{HOME};
+my $home = $ENV{__QQHOME__};
 die "qqin: fatal: empty \$ENV{__QQD__}\n" if !$qqd;
 die "qqin: fatal: empty \$ENV{__QQPATH__}\n" if !$qqpath;
 # Too late for a getpwnam or getpwuid after a chroot.
-die "qqin: fatal: empty \$ENV{HOME}\n" if !$home;
+die "qqin: fatal: empty \$ENV{__QQHOME__}\n" if !$home;
 die "qqin: fatal: bad QQD snytax: $qqd\n" if $qqd !~ m@\A(/[^/]+)+@;
 die "qqin: fatal: bad PWD snytax: $pwd\n" if $pwd !~ m@\A(/[^/]+)+@;
 die "qqin: fatal: QQD is not a prefix of PWD" if
@@ -128,7 +128,7 @@ if ($ENV{__QQLCALL__}) {
 } else {
   delete $ENV{LC_ALL};
 }
-delete @ENV{"__QQD__", "__QQPATH__", "__QQLCALL__", "__QQIN__"};
+delete @ENV{"__QQD__", "__QQPATH__", "__QQHOME__", "__QQLCALL__", "__QQIN__"};
 
 # Removes setuid, setgid and sticky bits.
 sub chmod_remove_high_bits($) {
@@ -323,9 +323,9 @@ push @ARGV, ($ENV{SHELL} eq "/bin/bash") ?
   my @path_out;
   for my $dir (split(/:+/, ($qqpath or ""))) {
     # Don"t match $home (outside chroot) itself.
-    if (!$is_root and substr($dir, 0, length($homes)) eq $homes) {
+    if ($dir eq $qqd or substr($dir, 0, length($qqds) eq $qqds)) {
+    } elsif (!$is_root and substr($dir, 0, length($homes)) eq $homes) {
       $dir = "$ENV{HOME}/" . substr($dir, length($homes));
-    } elsif ($dir eq $qqd or substr($dir, 0, length($qqds) eq $qqds)) {
     } else {
       next
     }
@@ -349,7 +349,7 @@ if (@ARGV and $ARGV[0] eq "cd" and !$is_root_cmd) {
 
 # exec(...) also prints a detailed error message.
 die "qqin: fatal: exec $ARGV[0]: $!\n" if !exec(@ARGV);
-' __QQD__="$__QQD__" __QQPATH__="$PATH" __QQLCALL__="$LC_ALL" PWD="$PWD" LC_ALL=C exec sudo -E chroot "$__QQD__" /usr/bin/perl -w -e 'eval $ENV{__QQIN__}; die $@ if $@' "$@"
+' __QQD__="$__QQD__" __QQPATH__="$PATH" __QQHOME__="$HOME" __QQLCALL__="$LC_ALL" PWD="$PWD" LC_ALL=C exec sudo -E chroot "$__QQD__" /usr/bin/perl -w -e 'eval $ENV{__QQIN__}; die $@ if $@' "$@"
   # Above setting LC_ALL=C instead of PERL_BADLANG=x, to prevent locale warnings.
 }
 
