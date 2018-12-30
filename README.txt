@@ -124,4 +124,11 @@ Compatibility with old Linux systems:
   `qq pts-debootstrap feisty feisty_dir' also works, and `qq apt-get install'
   works within there.
 
+Alternatives:
+
+* schroot (https://wiki.debian.org/Schroot) and its predecessor, dchroot are
+  convenient and configurable tools for root and non-root users to enter a
+  chroot environment. See more details on
+  https://askubuntu.com/q/158847/3559 .
+
 __END__
