@@ -249,18 +249,19 @@ sub ensure_auth_line($$;$) {
   $line .= "\n";
   die "qqin: assert: bad auth line: $line" if $line !~ m@\A([^:\n]+:)@;
   my $prefix = $1;
-  die "qqin: fatal: open $filename: $!\n" if !open(my($fh), "+<", $filename);
+  local *FH;  # my($fh) does not work in Perl 5.004.
+  die "qqin: fatal: open $filename: $!\n" if !open(FH, "+< $filename");
   my $fl;
-  while (defined($fl = <$fh>)) {
+  while (defined($fl = <FH>)) {
     if (substr($fl, 0, length($prefix)) eq $prefix) {
-      close($fh);
+      close(FH);
       return 1;
     }
   }
   if (!$is_check) {
-    die "qqin: fatal: seek: $!\n" if !sysseek($fh, 0, 2);
-    die "qqin: fatal: syswrite: $!\n" if !syswrite($fh, $line);
-    die "qqin: fatal: close: $!\n" if !close($fh);
+    die "qqin: fatal: seek: $!\n" if !sysseek(FH, 0, 2);
+    die "qqin: fatal: syswrite: $!\n" if !syswrite(FH, $line);
+    die "qqin: fatal: close: $!\n" if !close(FH);
   }
   0;
 }
@@ -283,9 +284,10 @@ if (@ARGV and $ARGV[0] eq "root") {
         $ENV{SUDO_USER} !~ m@\A[-+.\w]+\Z(?!\n)@;
     if (!ensure_auth_line("/etc/passwd", "$ENV{SUDO_USER}:", 1)) {
       if (!-f("/etc/shadow")) {
+        local *FH;
         die "qqin: fatal: error creating /etc/shadow: $!\n" if
-            !open(my($fh), ">>", "/etc/shadow");
-        close($fh);
+            !open(FH, ">> /etc/shadow");
+        close(FH);
         die "qqin: fatal: error chmodding /etc/shadow: $!\n" if
             !chmod(0600, "/etc/shadow");
       }
