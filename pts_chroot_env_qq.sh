@@ -308,6 +308,8 @@ if (@ARGV and $ARGV[0] eq "root") {
     ($(, $)) = ($ENV{SUDO_GID}, "$ENV{SUDO_GID} $ENV{SUDO_GID}");
     die "qqin: fatal: setgid failed\n" if
         $( != $ENV{SUDO_GID} or $) != $ENV{SUDO_GID};
+    # Some old versions on Perl (such as the one on Debian Potato) do not
+    # support UID > 65535, and they set $< and $> to 0 instead.
     ($<, $>) = ($ENV{SUDO_UID}, $ENV{SUDO_UID});
     die "qqin: fatal: setuid failed\n" if
         $( != $ENV{SUDO_GID} or $) != $ENV{SUDO_GID};
