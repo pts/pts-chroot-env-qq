@@ -274,7 +274,7 @@ my $is_root_cmd = 0;
 if (@ARGV and $ARGV[0] eq "root") {
   $is_root_cmd = 1;
   shift @ARGV;
-} elsif (@ARGV and grep({ $_ eq $ARGV[0] } @run_as_root)) {
+} elsif (@ARGV and grep ({ $_ eq $ARGV[0] } @run_as_root)) {
 } else {
   die "qqin: fatal: incomplete sudo environment: SUDO_UID, SUDO_GID, SUDO_USER\n" if
       !$ENV{SUDO_UID} or !$ENV{SUDO_GID} or !$ENV{SUDO_USER};
