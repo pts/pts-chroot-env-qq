@@ -51,7 +51,6 @@ __qq_pts_debootstrap__() {
     echo "qq: fatal: error extracting pts-debootstrap-latest.sfz.7z" >&2
     exit 103
   fi
-  exit
   sudo "$DIR.pts-debootstrap/pts-debootstrap/pts-debootstrap" "$@"
   local STATUS="$?"
   rm -rf "$DIR.pts-debootstrap"
