@@ -99,4 +99,29 @@ Usage:
     $ qq bash --version | head -1  # Feisty in chroot.
     GNU bash, version 3.2.13(1)-release (i486-pc-linux-gnu)
 
+Compatibility with old Linux systems:
+
+* The oldest Debian that is known to work with pts_chroot_env_qq.sh is
+  potato (Debian 2.2, released on 2000-08-15, containing Perl 5.004).
+  However, UIDs larger than 65535 are not supported, and you will get root
+  access within the chroot instead.
+
+  `qq pts-debootstrap potato potato_dir' also works, and `qq apt-get install'
+  works within there.
+
+* The oldest Debian that is known to work with pts_chroot_env_qq.sh with
+  UIDs larger than 65535 is woody (Debian 3.0, released on 2002-07-19,
+  containing Perl 5.6.1). However, UIDs larger than 65535 are not supported,
+  and you will get root access within the chroot instead.
+
+  `qq pts-debootstrap woody woody_dir' also works, and `qq apt-get install'
+  works within there.
+
+* The oldest Ubuntu that is known to work with pts_chroot_env_qq.sh is
+  feisty (Ubuntu 7.04, released on 2007-04-19). UIDs larger than 65535 also
+  work.
+
+  `qq pts-debootstrap feisty feisty_dir' also works, and `qq apt-get install'
+  works within there.
+
 __END__
