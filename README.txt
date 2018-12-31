@@ -114,12 +114,15 @@ Usage:
 Compatibility with old Linux systems:
 
 * The oldest Debian that is known to work with pts_chroot_env_qq.sh is
-  potato (Debian 2.2, released on 2000-08-15, containing Perl 5.004).
-  However, UIDs larger than 65535 are not supported, and you will get root
-  access within the chroot instead.
+  slink (Debian 2.1, released on 1999-03-19, containing Perl 5.004).
+  However, UIDs larger than 65535 are not supported, and you will get the
+  UID truncated to 16 bits within the chroot instead.
 
-  `qq pts-debootstrap potato potato_dir' also works, and `qq apt-get install'
+  `qq pts-debootstrap slink slink_dir' also works, and `qq apt-get install'
   works within there.
+
+  FYI In Debian potato (Debian 2.2), UIDs larger than 65535 are not
+  supported either, and you will get root access within the chroot instead.
 
 * The oldest Debian that is known to work with pts_chroot_env_qq.sh with
   UIDs larger than 65535 is woody (Debian 3.0, released on 2002-07-19,
@@ -155,6 +158,7 @@ Future plans and ideas:
 
 * Download Docker images, e.g. small Debian images (stretch, jessie, wheezy,
   unstable) from: https://github.com/bitnami/minideb
+
 * Download images from http://images.linuxcontainers.org/ also using
   http://images.linuxcontainers.org/streams/v1/index.json . It contains:
   Debian (buster, jessie, sid, stetch, wheezy), Ubuntu Core, Ubuntu (bionic,
