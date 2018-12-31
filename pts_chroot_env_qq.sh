@@ -63,13 +63,24 @@ __qq_pts_debootstrap__() {
 }
 
 __qq_get_alpine__() {
+  local ARCH=i386
+  if test "$1" == --arch && test $# -gt 1; then
+    ARCH="$2"
+    shift; shift
+  fi
   if test -z "$1" || test "$1" == --help || test $# -lt 2; then
-    # TODO(pts): Add support for --arch=amd64 (not only default --arch=i386).
-    echo "Usage:   $0 get-alpine {<version>|dir} <target-dir>" >&2
-    echo "Example: $0 get-alpine latest-stable alpine_dir"
-    echo "Example: $0 get-alpine 3.8 alpine38_dir"
+    # TODO(pts): Add support for --arch amd64 (not only default --arch=i386).
+    echo "Usage:   $0 get-alpine [--arch=<arch>] {<version>|dir} <target-dir>" >&2
+    echo "Example: $0 get-alpine latest-stable alpine_dir" >&2
+    echo "Example: $0 get-alpine 3.8 alpine38_dir" >&2
+    echo "Architectures (<arch>): i386 (x86), amd64 (x86_64), s390x, ppc64le, armhf, aarch64." >&2
     return 1
   fi
+  case "$ARCH" in
+   i[3456]86 | x86) ARCH=x86 ;;
+   amd64 | x86_64 | x64) ARCH=x86_64 ;;
+  esac
+
   # Works with version 3.5, 3.6, 3.7 and 3.8.
   local VERSION="$1"
   local DIR="$2"
@@ -108,11 +119,11 @@ __qq_get_alpine__() {
     VERSION="${VERSION#v}"
     local VERSION_SUFFIX="${VERSION#*.*.}"
     local VERSION_PREFIX="${VERSION%.$VERSION_SUFFIX}"  # 3.8 remains.
-    local URL="http://dl-cdn.alpinelinux.org/alpine/v$VERSION_PREFIX/releases/x86/alpine-minirootfs-$VERSION-x86.tar.gz"
+    local URL="http://dl-cdn.alpinelinux.org/alpine/v$VERSION_PREFIX/releases/$ARCH/alpine-minirootfs-$VERSION-$ARCH.tar.gz"
     VERSION="v$VERSION"
   else
     test "${VERSION#[0-9]}" = "$VERSION" || VERSION="v$VERSION"
-    local URL="http://dl-cdn.alpinelinux.org/alpine/$VERSION/releases/x86/"
+    local URL="http://dl-cdn.alpinelinux.org/alpine/$VERSION/releases/$ARCH/"
     if wget -qO "$DIR.get/alpine.html" "$URL" && test -s "$DIR.get/alpine.html"; then
       :
     else
@@ -126,7 +137,7 @@ __qq_get_alpine__() {
       rm -rf "$DIR.get"
       return 102
     fi
-    local URL="http://dl-cdn.alpinelinux.org/alpine/$VERSION/releases/x86/$FILENAME"
+    local URL="http://dl-cdn.alpinelinux.org/alpine/$VERSION/releases/$ARCH/$FILENAME"
   fi
   echo "qq: info: downloading: $URL" >&2
   if wget -qO "$DIR.get/alpine.tar.gz" "$URL" && test -s "$DIR.get/alpine.tar.gz"; then
