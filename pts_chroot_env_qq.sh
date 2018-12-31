@@ -98,13 +98,6 @@ __qq_get_alpine__() {
       echo "qq: fatal: Alpine Linux not found in directory: $DIR" >&2
       return 110
     fi
-    if ! test -x "$DIR/usr/bin/perl"; then
-      if ! (sudo chroot "$DIR" /usr/bin/env -i /sbin/apk --update fix perl &&
-            sudo chroot "$DIR" /usr/bin/env -i /sbin/apk add perl); then
-        echo "qq: fatal: error installing Perl to Alpine Linux" >&2
-        return 112
-      fi
-    fi
     return
   fi
   test "${DIR#/}" = "$DIR" && DIR="./$DIR"
@@ -193,11 +186,9 @@ __qq__() {
   done
   while test "$__QQD__"; do
     __QQFOUND__=1
-    if test -x "$__QQD__/usr/bin/perl" || test -h "$__QQD__/usr/bin/perl"; then
-      test -x "$__QQD__/sbin/init" && test -f "$__QQD__/etc/issue" && break
-      test -h "$__QQD__/sbin/init" && test -f "$__QQD__/etc/issue" && break
-      test -f "$__QQD__/etc/qqsystem" && break
-    fi
+    test -x "$__QQD__/sbin/init" && test -f "$__QQD__/etc/issue" && break
+    test -h "$__QQD__/sbin/init" && test -f "$__QQD__/etc/issue" && break
+    test -f "$__QQD__/etc/qqsystem" && break
     __QQFOUND__=
     test "${__QQD__%/*}" = "$__QQD__" && break
     __QQD__="${__QQD__%/*}"
@@ -205,12 +196,6 @@ __qq__() {
   if test -z "$__QQFOUND__"; then
     echo "qq: fatal: system-in-chroot not found up from: $PWD" >&2
     return 124
-  fi
-  local UNSHARE
-  if type unshare >/dev/null 2>&1; then
-    UNSHARE='unshare -m'  # Don't share /proc and /dev/pts mounts.
-  else
-    UNSHARE=''
   fi
   # TODO(pts): Set up /etc/hosts and /etc/resolve.conf automatically.
   # TODO(pts): As an alternative to `sudo -E chroot`, run the non-root mode in
@@ -226,9 +211,50 @@ __qq__() {
 # invoke su(1) or sudo(1).
 #
 
-BEGIN{ $^W = 1 }
+BEGIN { $^W = 1 }
 use integer;
 use strict;
+
+sub CLONE_NEWUSER() { 0x10000000 }  # New user namespace.
+sub CLONE_NEWNS() { 0x20000 }       # New mount namespace.
+sub CLONE_NEWIPC() { 0x08000000 }   # New IPC namespace.
+sub MS_RDONLY() { 0x1 }
+sub MS_BIND() { 0x1000 }
+sub MS_REC() { 0x4000 }
+sub MS_PRIVATE() { 0x40000 }
+
+# Returns (undef, $SYS_mount, $SYS_unshare) or ($error, undef, undef).
+sub detect_unshare() {
+  return ("Linux operating system needed", undef, undef) if $^O ne "linux";
+  # We figure out the architecture of the current process by opening the Perl
+  # interpreter binary. Doing require POSIX; die((POSIX::uname())[4])
+  # would not work, because it would return x86_64 for an i386 process running
+  # on an amd64 kernel.
+  local *FH;
+  return ("open $^X: $!", undef, undef) if !open(FH, "< $^X");
+  my $got = sysread(FH, $_, 52);
+  return ("read $^X: $!", undef, undef) if ($got or 0) < 52;
+  return ("close $^X: $!", undef, undef) if !close(FH);
+  my $arch = "unknown";
+  my ($SYS_mount, $SYS_unshare);
+  # https://en.wikipedia.org/wiki/Executable_and_Linkable_Format#File_header
+# System call numbers: https://fedora.juszkiewicz.com.pl/syscalls.html
+  if (/\A\x7FELF\x02\x01\x01[\x00\x03]........[\x02\x03]\x00\x3E/s) {
+    $arch = "amd64";  # x86_64, x64.
+    return (undef, 165, 272);
+  } elsif (/\A\x7FELF\x02\x01\x01[\x00\x03]........[\x02\x03]\x00\xB7/s) {
+    $arch = "aarch64";  # arm64.
+    return (undef, 40, 97);
+  } elsif (/\A\x7FELF\x01\x01\x01[\x00\x03]........[\x02\x03]\x00\x03/s) {
+    $arch = "i386";  # i486, i586, i686, x86.
+    return (undef, 21, 310);
+  } elsif (/\A\x7FELF\x01\x01\x01[\x00\x03]........[\x02\x03]\x00\x28/s) {
+    $arch = "arm";  # arm32.
+    return (undef, 21, 337);
+  } else {
+    return ("unknown architecture for the Perl process\n", undef, undef);
+  }
+}
 
 #die "qqin: fatal: unexpected \$0: $0\n" if $0 ne "...";
 die "qqin: fatal: must be run as root\n" if $> != 0;
@@ -254,6 +280,17 @@ if ($ENV{__QQLCALL__}) {
   delete $ENV{LC_ALL};
 }
 delete @ENV{"__QQD__", "__QQPATH__", "__QQHOME__", "__QQLCALL__", "__QQIN__"};
+# We must call this before chroot(...), for the correct $^X value.
+my ($unshare_error, $SYS_mount, $SYS_unshare) = detect_unshare();
+# We must call this on our roout (/) before chroot to take effect.
+if (defined($SYS_unshare) and !syscall($SYS_unshare, CLONE_NEWNS)) {
+  # Without this call CLONE_NEWS does not take effect when run as root.
+  my @spec = ("none", "/", 0, MS_REC | MS_PRIVATE, 0);
+  #die "fatal: mount /: $!\n" if
+  syscall($SYS_mount, @spec);
+}
+die "qqin: fatal: chroot $qqd: $!\n" if !chroot($qqd);
+die "qqin: fatal: cd /: $!\n" if !chdir("/");  # Within $qqd.
 
 # Removes setuid, setgid and sticky bits.
 sub chmod_remove_high_bits($) {
@@ -479,7 +516,8 @@ if (@ARGV and $ARGV[0] eq "cd" and !$is_root_cmd) {
 
 # exec(...) also prints a detailed error message.
 die "qqin: fatal: exec $ARGV[0]: $!\n" if !exec(@ARGV);
-' __QQD__="$__QQD__" __QQPATH__="$PATH" __QQHOME__="$HOME" __QQLCALL__="$LC_ALL" PWD="$PWD" LC_ALL=C exec sudo -E $UNSHARE chroot "$__QQD__" /usr/bin/perl -w -e 'eval $ENV{__QQIN__}; die $@ if $@' "$@"
+' __QQD__="$__QQD__" __QQPATH__="$PATH" __QQHOME__="$HOME" __QQLCALL__="$LC_ALL" PWD="$PWD" LC_ALL=C exec sudo -E perl -w -e 'eval $ENV{__QQIN__}; die $@ if $@' "$@"
+  # TODO(pts): Run __QQIN__ with Perl 5.004 for maximum compatibility.
   # Above setting LC_ALL=C instead of PERL_BADLANG=x, to prevent locale warnings.
 }
 
