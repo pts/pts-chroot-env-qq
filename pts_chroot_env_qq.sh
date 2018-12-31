@@ -260,7 +260,8 @@ sub ensure_auth_line($$;$) {
   }
   if (!$is_check) {
     die "qqin: fatal: seek: $!\n" if !sysseek(FH, 0, 2);
-    die "qqin: fatal: syswrite: $!\n" if !syswrite(FH, $line);
+    die "qqin: fatal: syswrite: $!\n" if
+        length($line) != (syswrite(FH, $line, length($line)) or 0);
     die "qqin: fatal: close: $!\n" if !close(FH);
   }
   0;
