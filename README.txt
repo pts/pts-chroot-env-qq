@@ -143,4 +143,15 @@ Alternatives:
   chroot environment. See more details on
   https://askubuntu.com/q/158847/3559 .
 
+Future plans and ideas:
+
+* Download Docker images, e.g. small Debian images (stretch, jessie, wheezy,
+  unstable) from: https://github.com/bitnami/minideb
+* Download images from http://images.linuxcontainers.org/ also using
+  http://images.linuxcontainers.org/streams/v1/index.json . It contains:
+  Debian (buster, jessie, sid, stetch, wheezy), Ubuntu Core, Ubuntu (bionic,
+  cosmic, disco, trusty, xenial), Alpine (3.4 ... 3.8), Arch, CentOS (6 and
+  7), Fedora (26, 27, 28, 29), Gentoo, openSUSE (15, 42), Oracle (6, 7),
+  Plamo (5, 6, 7), Sabayon.
+
 __END__
