@@ -136,12 +136,20 @@ Compatibility with old Linux systems:
   `qq pts-debootstrap feisty feisty_dir' also works, and `qq apt-get install'
   works within there.
 
-Alternatives:
+Alternatives of pts_chroot_env_qq.sh:
 
 * schroot (https://wiki.debian.org/Schroot) and its predecessor, dchroot are
   convenient and configurable tools for root and non-root users to enter a
   chroot environment. See more details on
   https://askubuntu.com/q/158847/3559 .
+
+* uchroot (https://github.com/cheshirekow/uchroot): Python scripts providing
+  chroot-like (`mount --bind') functionality with user namespaces. Doesn't
+  need root access. An Ubuntu Trusty system can be set up within it:
+  https://github.com/cheshirekow/uchroot/blob/master/uchroot/doc/multistrap_example.rst
+
+* multistrap (https://wiki.debian.org/Multistrap) is a cross-architecture,
+  manual (a bit hacky) version of debootstrap.
 
 Future plans and ideas:
 
