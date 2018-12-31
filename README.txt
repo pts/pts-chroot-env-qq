@@ -40,6 +40,8 @@ Convenience functionality provided by pts_chroot_env_qq.sh:
   directories on the $PATH if they are visible from within the chroot
   environment (e.g. /tmp/mychroot/opt/myprogdir will be kept on $PATH,
   /var/myprog2dir will be removed).
+* It hides the /proc and /dev/pts mounts from the host system (using
+  `unshare -m').
 * It automates the creation of chroot environments on i386 Linux systems with
   Linux distributions Ubuntu, Debian and Alpine.
 
