@@ -10,18 +10,23 @@ __qq_pts_debootstrap__() {
   if test -z "$1" || test "$1" == --help || test $# -lt 2; then
     echo "Usage:   $0 pts-debootstrap [<flag>...] <debian-distro-name> <target-dir>" >&2
     echo "Example: $0 pts-debootstrap feisty feisty_dir"
-    exit 1
+    return 1
   fi
   local ARG DIR=
   for ARG in "$@"; do
     DIR="$ARG"
   done
+  test "${DIR#/}" = "$DIR" && DIR="./$DIR"
+  if test -d "$DIR"; then
+    echo "qq: fatal: target directory already exists, not clobbering: $DIR" >&2
+    return 100
+  fi
   # Example: $ wget http://pts.50.hu/files/pts-debootstrap/pts-debootstrap-latest.sfx.7z
   local URL=https://raw.githubusercontent.com/pts/pts-debootstrap/master/README.txt
   local S="$(wget -qO- "$URL")"
   if test -z "$S"; then
-    echo "qq: fatal: could download URL: $URL" >&2
-    exit 101
+    echo "qq: fatal: error downloading URL: $URL" >&2
+    return 101
   fi
   local URL="$(echo "$S" | while read A B URL; do
         if test "$A" = \$ && test "$B" = wget &&
@@ -34,34 +39,137 @@ __qq_pts_debootstrap__() {
       done)"
   if test -z "$URL"; then
     echo "qq: fatal: could not find URL of pts-debootstrap-latest.sfx.7z" >&2
-    exit 102
+    return 102
   fi
-  rm -rf "$DIR.pts-debootstrap"
+  rm -rf   "$DIR.pts-debootstrap"
   mkdir -p "$DIR.pts-debootstrap"
   if wget -qO "$DIR.pts-debootstrap/pts-debootstrap-latest.sfx.7z" "$URL" &&
      test -s "$DIR.pts-debootstrap/pts-debootstrap-latest.sfx.7z"; then
     :
   else
-    echo "qq: fatal: could download URL: $URL" >&2
-    exit 103
+    echo "qq: fatal: error downloading URL: $URL" >&2
+    return 103
   fi
-  if ! ( cd "$DIR.pts-debootstrap" &&
-    chmod 755 pts-debootstrap-latest.sfx.7z &&
-    ./pts-debootstrap-latest.sfx.7z -y >/dev/null); then
+  if ! (cd "$DIR.pts-debootstrap" &&
+        chmod 755 pts-debootstrap-latest.sfx.7z &&
+        ./pts-debootstrap-latest.sfx.7z -y >/dev/null); then
     echo "qq: fatal: error extracting pts-debootstrap-latest.sfz.7z" >&2
-    exit 103
+    return 104
   fi
   sudo "$DIR.pts-debootstrap/pts-debootstrap/pts-debootstrap" "$@"
   local STATUS="$?"
   rm -rf "$DIR.pts-debootstrap"
-  exit "$?"
+  return "$?"
+}
+
+__qq_get_alpine__() {
+  if test -z "$1" || test "$1" == --help || test $# -lt 2; then
+    # TODO(pts): Add support for --arch=amd64 (not only default --arch=i386).
+    echo "Usage:   $0 get-alpine {<version>|dir} <target-dir>" >&2
+    echo "Example: $0 get-alpine latest-stable alpine_dir"
+    echo "Example: $0 get-alpine 3.8 alpine38_dir"
+    return 1
+  fi
+  # Works with version 3.5, 3.6, 3.7 and 3.8.
+  local VERSION="$1"
+  local DIR="$2"
+
+  if test "$VERSION" = dir; then
+    if ! (cd "$DIR" 2>/dev/null); then
+      if ! sudo chown "$(id -u)" "$DIR"; then
+        echo "qq: fatal: chown failed in: $DIR" >&2
+        return 112
+      fi
+    fi
+    if test -f "$DIR/etc/apk/repositories" && test -x "$DIR/sbin/apk" && test -f "$DIR/etc/issue" && (test -f "$DIR"/sbin/init || test -x "$DIR/sbin/init"); then
+      :
+    else
+      echo "qq: fatal: Alpine Linux not found in directory: $DIR" >&2
+      return 110
+    fi
+    if ! test -x "$DIR/usr/bin/perl"; then
+      if ! (sudo chroot "$DIR" /usr/bin/env -i /sbin/apk --update fix perl &&
+            sudo chroot "$DIR" /usr/bin/env -i /sbin/apk add perl); then
+        echo "qq: fatal: error installing Perl to Alpine Linux" >&2
+        return 112
+      fi
+    fi
+    return
+  fi
+  test "${DIR#/}" = "$DIR" && DIR="./$DIR"
+  if test -d "$DIR"; then
+    echo "qq: fatal: target directory already exists, not clobbering: $DIR" >&2
+    return 100
+  fi
+  rm  -rf "$DIR.get" 2>/dev/null
+  test -d "$DIR.get" && sudo rm -rf "$DIR.get"
+  mkdir -p "$DIR.get/alpine.dir"
+  if test "${VERSION#*.*.*}" != "$VERSION"; then
+    VERSION="${VERSION#v}"
+    local VERSION_SUFFIX="${VERSION#*.*.}"
+    local VERSION_PREFIX="${VERSION%.$VERSION_SUFFIX}"  # 3.8 remains.
+    local URL="http://dl-cdn.alpinelinux.org/alpine/v$VERSION_PREFIX/releases/x86/alpine-minirootfs-$VERSION-x86.tar.gz"
+    VERSION="v$VERSION"
+  else
+    test "${VERSION#[0-9]}" = "$VERSION" || VERSION="v$VERSION"
+    local URL="http://dl-cdn.alpinelinux.org/alpine/$VERSION/releases/x86/"
+    if wget -qO "$DIR.get/alpine.html" "$URL" && test -s "$DIR.get/alpine.html"; then
+      :
+    else
+      echo "qq: fatal: error downloading URL: $URL" >&2
+      rm -rf "$DIR.get"
+      return 101
+    fi
+    local FILENAME="$(<"$DIR.get"/alpine.html awk -F'"' '$2~/^alpine-minirootfs-.*[.]tar[.]gz$/&&$2!~/[0-9]_rc[0-9]/{print$2}' | sort | tail -1)"  #'
+    if test -z "$FILENAME"; then
+      echo "qq: fatal: missing alpine-minirootfs-*.tar.gz in: $URL" >&2
+      rm -rf "$DIR.get"
+      return 102
+    fi
+    local URL="http://dl-cdn.alpinelinux.org/alpine/$VERSION/releases/x86/$FILENAME"
+  fi
+  echo "qq: info: downloading: $URL" >&2
+  if wget -qO "$DIR.get/alpine.tar.gz" "$URL" && test -s "$DIR.get/alpine.tar.gz"; then
+    :
+  else
+    echo "qq: fatal: error downloading URL: $URL" >&2
+    return 103
+  fi
+  if ! (cd "$DIR.get" &&
+        (cd alpine.dir && sudo tar xzf ../alpine.tar.gz) &&
+        sudo chmod 755 alpine.dir &&
+        sudo mv alpine.dir/* ./ &&
+        sudo rmdir alpine.dir &&
+        rm -f alpine.tar.gz alpine.html); then
+    echo "qq: fatal: error extracting $DIR.get/alpine.tar.gz" >&2
+    rm  -rf "$DIR.get" 2>/dev/null
+    test -d "$DIR.get" && sudo rm -rf "$DIR.get"
+    return 104
+  fi
+  # TODO(pts): Use staticperl instead, it uses much less disk.
+  if ! (sudo chroot "$DIR.get" /usr/bin/env -i /sbin/apk --update fix perl &&
+        sudo chroot "$DIR.get" /usr/bin/env -i /sbin/apk add perl); then
+    echo "qq: fatal: error installing Perl to Alpine Linux" >&2
+    rm  -rf "$DIR.get" 2>/dev/null
+    test -d "$DIR.get" && sudo rm -rf "$DIR.get"
+    return 105
+  fi
+  if ! mv "$DIR".get "$DIR"; then
+    echo "qq: fatal: rename failed from: $DIR.get" >&2
+    exit 105
+  fi
+  echo "qq: info: Alpine Linux $VERSION installed to: $DIR" >&2
 }
 
 __qq__() {
   if test "$1" = pts-debootstrap; then
     shift
     __qq_pts_debootstrap__ "$@"
-    return
+    return "$?"
+  elif test "$1" = get-alpine; then
+    shift
+    __qq_get_alpine__ "$@"
+    return "$?"
   fi
   local __QQD__="$PWD" __QQFOUND__
   test "${__QQD__#/}" = "$__QQD__" && __QQD__="$(pwd)"
@@ -76,6 +184,7 @@ __qq__() {
     __QQFOUND__=1
     if test -x "$__QQD__/usr/bin/perl" || test -h "$__QQD__/usr/bin/perl"; then
       test -x "$__QQD__/sbin/init" && test -f "$__QQD__/etc/issue" && break
+      test -h "$__QQD__/sbin/init" && test -f "$__QQD__/etc/issue" && break
       test -f "$__QQD__/etc/qqsystem" && break
     fi
     __QQFOUND__=
@@ -270,7 +379,7 @@ sub ensure_auth_line($$;$) {
 $ENV{HOME} = "/root";
 my $username = "root";
 my @run_as_root = (
-    "su", "sudo", "login", "passwd", "apt-get", "dpkg", "rpm", "yum");
+    "su", "sudo", "login", "passwd", "apt-get", "apt", "dpkg", "rpm", "yum", "apk");
 my $is_root = 1;
 my $is_root_cmd = 0;
 if (@ARGV and $ARGV[0] eq "root") {
@@ -332,7 +441,7 @@ push @ARGV, ($ENV{SHELL} eq "/bin/bash") ?
   my %path;
   my @path_out;
   for my $dir (split(/:+/, ($qqpath or ""))) {
-    # Don"t match $home (outside chroot) itself.
+    # Do not match $home (outside chroot) itself.
     if ($dir eq $qqd or substr($dir, 0, length($qqds) eq $qqds)) {
     } elsif (!$is_root and substr($dir, 0, length($homes)) eq $homes) {
       $dir = "$ENV{HOME}/" . substr($dir, length($homes));

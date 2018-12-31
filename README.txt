@@ -40,6 +40,8 @@ Convenience functionality provided by pts_chroot_env_qq.sh:
   directories on the $PATH if they are visible from within the chroot
   environment (e.g. /tmp/mychroot/opt/myprogdir will be kept on $PATH,
   /var/myprog2dir will be removed).
+* It automates the creation of chroot environments on i386 Linux systems with
+  Linux distributions Ubuntu, Debian and Alpine.
 
 Requirements on the host system:
 
@@ -89,8 +91,9 @@ Usage:
 * To install packages to a Debian or Ubuntu chroot, first run
   `qq apt-get update', then run `qq apt-get install PACKAGENAME'.
 * To install an initial chroot environment on Linux i386 or amd64 systems
+  for Linux distributions Ubuntu and Debian
   using pts-debootstrap (https://github.com/pts/pts-debootstrap/), run
-  `qq debootrap DISTRO TARGETDIR', e.g.
+  `qq debootsrap DISTRO TARGETDIR', e.g.
 
     $ qq pts-debootstrap feisty feisty_dir
     $ cd feisty_dir
@@ -98,6 +101,13 @@ Usage:
     GNU bash, version 4.4.12(1)-release (x86_64-pc-linux-gnu)
     $ qq bash --version | head -1  # Feisty in chroot.
     GNU bash, version 3.2.13(1)-release (i486-pc-linux-gnu)
+* To install an initial i386 chroot environment on Linux i386 or amd64 systems
+  for Linux distribution Alpine, run `qq get-alpine VERSION TARGETDIR', e.g.
+
+    $ qq get-alpine latest-stable alpine_dir
+    $ cd alpine_dir
+    $ qq busybox | head
+    BusyBox v1.28.4 (2018-12-06 15:13:21 UTC) multi-call binary.
 
 Compatibility with old Linux systems:
 
