@@ -123,7 +123,7 @@ How to create a chroot environment:
     $ qq bash --version | head -1  # Feisty in chroot.
     GNU bash, version 3.2.13(1)-release (i486-pc-linux-gnu)
 
-* To install an initial chroot environment on Linux
+* To install an initial chroot environment
   for Linux distribution Alpine, run `qq get-alpine VERSION TARGETDIR', e.g.
 
     $ qq get-alpine latest-stable alpine_dir
@@ -133,6 +133,20 @@ How to create a chroot environment:
 
   Please note that the default `--arch i386' is used. To use a different
   architecture, specigy `--arch ARCH'.
+
+* To install an initial chroot environment for a recent version of the
+  Linux distribution Ubuntu using their cloud image repository, run
+  `qq get-ubuntu DISTRO TARGETDIR', e.g. `qq get-ubuntu bionic bionic_dir'
+  or `qq get-ubuntu zesty zesty_dir'. The oldest available Ubuntu is 10.04
+  (lucid), run ``qq get-ubuntu lucid lucid_dir' to get it.
+
+* To install an initial chroot environment for a recent version of a
+  Linux distribution using the LXC (or LXD) cloud image repository, run
+  `qq get-lxc DISTRO TARGETDIR', e.g. `qq get-lxc centos/6 centos_dir'.
+  Alpine Linux is also available from this repository.
+
+  To get a full list of Linux distributions available, run
+  `qq get-lxc . get_dir'.
 
 * To install an initial chroot environment based on a Docker image, install
   Docker first, and then run something like:

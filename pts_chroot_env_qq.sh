@@ -10,6 +10,7 @@ __qq_pts_debootstrap__() {
   if test -z "$1" || test "$1" == --help || test $# -lt 2; then
     echo "Usage:   $0 pts-debootstrap [<flag>...] <debian-distro-name> <target-dir>" >&2
     echo "Example: $0 pts-debootstrap feisty feisty_dir"
+    echo "Example: $0 pts-debootstrap --arch amd64 stretch stretch_dir"
     return 1
   fi
   local ARG DIR=
@@ -70,8 +71,7 @@ __qq_get_alpine__() {
     ARCH="$2"
     shift; shift
   fi
-  if test -z "$1" || test "$1" == --help || test $# -lt 2; then
-    # TODO(pts): Add support for --arch amd64 (not only default --arch=i386).
+  if test -z "$1" || test "$1" == --help || test $# != 2; then
     echo "Usage:   $0 get-alpine [--arch=<arch>] {<version>|dir} <target-dir>" >&2
     echo "Example: $0 get-alpine latest-stable alpine_dir" >&2
     echo "Example: $0 get-alpine 3.8 alpine38_dir" >&2
@@ -81,6 +81,7 @@ __qq_get_alpine__() {
   case "$ARCH" in
    i[3456]86 | x86) ARCH=x86 ;;
    amd64 | x86_64 | x64) ARCH=x86_64 ;;
+   ppc64el | ppc64le) ARCH=ppc64le ;;
   esac
 
   # Works with version 3.5, 3.6, 3.7 and 3.8.
@@ -144,8 +145,9 @@ __qq_get_alpine__() {
     echo "qq: fatal: error downloading URL: $URL" >&2
     return 103
   fi
+  # tar in Debian slink (1999-03) supports --numeric-owner, but busybox tar doesn't.
   if ! (cd "$DIR.get" &&
-        (cd alpine.dir && $SUDO tar xzf ../alpine.tar.gz) &&
+        (cd alpine.dir && $SUDO tar --numeric-owner -xzf ../alpine.tar.gz) &&
         $SUDO chmod 755 alpine.dir &&
         $SUDO mv alpine.dir/* ./ &&
         $SUDO rmdir alpine.dir &&
@@ -163,15 +165,207 @@ __qq_get_alpine__() {
   echo "qq: info: Alpine Linux $VERSION installed to: $DIR" >&2
 }
 
+__qq_get_cloud_image__() {
+  local URL="$1" ARCH="$2" DISTRO="$3" DIR="$4"
+
+  case "$ARCH" in
+   i[3456]86 | x86) ARCH=i386 ;;
+   amd64 | x86_64 | x64) ARCH=amd64 ;;
+   ppc64el | ppc64le) ARCH=ppc64el ;;
+  esac
+
+  local SUDO=sudo
+  test "$EUID" = 0 && SUDO=
+
+  test "${DIR#/}" = "$DIR" && DIR="./$DIR"
+  if test -d "$DIR"; then
+    echo "qq: fatal: target directory already exists, not clobbering: $DIR" >&2
+    return 100
+  fi
+  rm  -rf "$DIR.get" 2>/dev/null
+  test -d "$DIR.get" && $SUDO rm -rf "$DIR.get"
+  mkdir -p "$DIR.get/rootfs.dir"
+  local BASE_URL="${URL%%/streams/v1/*}/"
+
+  echo "qq: info: downloading distro list: $URL" >&2
+  # TODO(pts): Try downloading https:// everywhere first.
+  if wget -qO "$DIR.get/images.json" "$URL" && test -s "$DIR.get/images.json"; then
+    :
+  else
+    echo "qq: fatal: error downloading URL: $URL" >&2
+    rm -rf "$DIR.get"
+    return 101
+  fi
+
+  URL="$(BASE_URL="$BASE_URL" ARCH="$ARCH" DISTRO="$DISTRO" exec perl -w -e '
+    BEGIN { $^W = 1 }
+    use strict;
+    use integer;
+    $_=join("", <STDIN>);
+    my %jsonstr = split(/,/, "b,\b,n,\n,r,\r,t,\t");
+    # Poor man"s JSON-parser. Safe (resistant to injection attacks) even with eval below.
+    s` ([{}\[\],\s]+) | (:) | "((?:[^\"\\]+|\\.)*)" | (null) | ([-+.\w]+) | (.) `
+      if (defined($1)) { $1 }
+      elsif (defined($2)) { "=>" }
+      elsif (defined($3)) { my $s = $3; $s =~ s@\\(.)@$1@gs; $s=~s@([\\\x27])@\\$1@g; "\x27$s\x27" }  # TODO(pts): Support \uXXXX.
+      elsif (defined($4)) { "undef" }
+      elsif (defined($5)) { "\x27$5\x27" }  # Includes true and false.
+      else { die "bad JSON syntax: $7\n" }
+    `gexs; die $@ if $@;
+    $_ = eval($_);
+    die "bad json parse: $@\n" if $@;
+    #use Data::Dumper; print Dumper($_);
+    my %all_archs;
+    my %all_distros;
+    my $match_distro = $ENV{DISTRO};
+    my $last_url;
+    BEGIN { $^W = 0 }  # No warnings about undefined values.
+    for (values(%{$_->{products}})) {
+      $all_archs{$_->{arch}} = 1;
+      my %distros;
+      $distros{"\L$_->{os}/$_->{release}"} = 1 if $_->{release};
+      $distros{"$_->{release}"} = 1 if $_->{release};
+      $distros{"\L$_->{os}/$_->{release_title}"} = 1 if $_->{release_title};
+      $distros{"$_->{release_title}"} = 1 if $_->{release_title};
+      for my $alias (split(/[\s,]+/, $_->{aliases})) {
+        $distros{"\L$_->{os}/$alias"} = 1;
+        $distros{"\L$alias"} = 1;
+      }
+      for my $distro (keys(%distros)) { $all_distros{$distro} = 1 }
+      next if $_->{arch} ne $ENV{ARCH} or !exists($distros{$match_distro});
+      # Typical: version: "20181227_04:59", "20171031".
+      for my $version (sort keys(%{$_->{versions}})) {
+        my $item_dict = $_->{versions}{$version}{items};
+        my $url;
+        if ($item_dict->{"root.tar.xz"}{path}) {  # TODO(pts): Save type.
+          $url = $item_dict->{"root.tar.xz"}{path};  # TODO(pts): Prefer .tar.xz if available and xz is not $PATH.
+        } elsif ($item_dict->{"root.tar.gz"}{path}) {  # Do not look at "tar.gz", it contains a filesystem image (.img).
+          $url = $item_dict->{"root.tar.gz"}{path};
+        } elsif ($item_dict->{"root.squashfs"}{path}) {
+          $url = $item_dict->{"root.squashfs"}{path};
+        } elsif ($item_dict->{"squashfs"}{path}) {
+          $url = $item_dict->{"squashfs"}{path};
+        }
+        if (defined($url)) {
+          $url =~ s@\A/+@@;
+          # Example $url: server/releases/zesty/release-20171121/ubuntu-17.04-server-cloudimg-armhf.tar.gz -> http://cloud-images.ubuntu.com/releases/server/releases/zesty/release-20171121/ubuntu-17.04-server-cloudimg-armhf.tar.gz
+          $url = "$ENV{BASE_URL}$url" if $url !~ m@://@;
+          #die $url;
+          $last_url = $url;  # Corresponding to the largest $version.
+        }
+      }
+    }
+    die "qq: fatal: root image of requested <distro>=$match_distro --arch=$ENV{ARCH} not found\n" .
+        "qq: fatal: available <distro> values: @{[sort keys %all_distros]}\n" .
+        "qq: fatal: --arch values: @{[sort keys %all_archs]}\n" if !defined($last_url);
+    print $last_url
+  ' <"$DIR.get/images.json")"
+  if test -z "$URL"; then
+    rm -rf "$DIR.get"
+    return 102
+  fi
+  rm -f "$DIR.get/images.json"
+
+  echo "qq: info: downloading root filesystem: $URL" >&2
+  if test "${URL%.tar.gz}" != "$URL"; then
+    # TODO(pts): Detect partial downloads.
+    (wget -nv -O- "$URL" && : >"$DIR.get/download.ok") | (cd "$DIR.get/rootfs.dir" && $SUDO tar --numeric-owner -xz && : >"../extract.ok")
+  elif test "${URL%.tar.xz}" != "$URL"; then
+    (wget -nv -O- "$URL" && : >"$DIR.get/download.ok") | (cd "$DIR.get/rootfs.dir" && $SUDO tar --numeric-owner -xJ && : >"../extract.ok")
+  elif test "${URL%.squashfs}" != "$URL"; then
+    if wget -nv -O "$DIR.get/rootfs.squashfs" "$URL"; then
+      # We need to support .squashfs, because .tar.gz and .tar.xz are missing for:
+      # qq get-ubuntu zesty zesty_dir  # http://cloud-images.ubuntu.com/releases/server/releases/zesty/release-20171208/ubuntu-17.04-server-cloudimg-i386.squashfs
+      echo "qq: info: extractiong root filesystem: $DIR.get/rootfs.squashfs" >&2
+      if type -p unsquashfs >/dev/null 2>&1; then
+        if $SUDO unsquashfs -n -f -d "$DIR.get/rootfs.dir" "$DIR.get/rootfs.squashfs"; then
+          : >"$DIR.get/download.ok"
+          : >"$DIR.get/extract.ok"
+        else
+          echo "qq: fatal: unsquashfs failed" >&2
+        fi
+      else
+        if (cd "$DIR.get" &&
+            mkdir rootfs.sqm &&
+            $SUDO mount -t squashfs -o loop,ro rootfs.squashfs rootfs.sqm &&
+            # Better preserves hard links than `cp -a'.
+            (cd rootfs.sqm && $SUDO tar --numeric-owner -c . && : >../download.ok) | (cd rootfs.dir && $SUDO tar --numeric-owner -x && : >../extract.ok) &&
+            $SUDO umount rootfs.sqm &&
+            rmdir rootfs.sqm); then
+          : >"$DIR.get/extract.ok"
+        else
+          echo "qq: fatal: kernel extraction of squashfs failed" >&2
+          test -e "$DIR.get/rootfs.sqm" && $SUDO umount "$DIR.get/rootfs.sqm"
+        fi
+      fi
+    fi
+  else
+    echo "qq: fatal: unknown type for file: ${URL##*/}"
+  fi
+  if ! (test -f "$DIR.get/download.ok" && test -f "$DIR.get/extract.ok"); then
+    echo "qq: fatal: error downloading root filesystem: $URL" >&2
+    # TODO(pts): Do this cleanup on interrupt exit as well (with trap).
+    rm  -rf "$DIR.get" 2>/dev/null
+    test -d "$DIR.get" && $SUDO rm -rf "$DIR.get"
+    return 103
+  fi
+  rm -f "$DIR.get/download.ok" "$DIR.get/extract.ok" "$DIR.get/rootfs.squashfs"
+  if ! ( cd "$DIR.get" &&
+         $SUDO chmod 755 rootfs.dir &&
+         $SUDO mv rootfs.dir/* ./ &&
+         $SUDO rm -rf rootfs.dir &&
+         cd .. &&
+         mv "$DIR".get "$DIR"); then
+    echo "qq: fatal: rename failed from: $DIR.get" >&2
+    rm  -rf "$DIR.get" 2>/dev/null
+    test -d "$DIR.get" && $SUDO rm -rf "$DIR.get"
+    return 104
+  fi
+  echo "qq: info: Linux distro $DISTRO installed to: $DIR" >&2
+  # !! TODO(pts): Run `qq id' for initial setup for the user.
+}
+
+# Download from http://images.linuxcontainers.org/
+__qq_get_lxc__() {
+  local ARCH=i386
+  if test "$1" == --arch && test $# -gt 1; then
+    ARCH="$2"
+    shift; shift
+  fi
+  if test -z "$1" || test "$1" == --help || test $# != 2; then
+    echo "Usage:   $0 get-lxc [--arch=<arch>] <distro> <target-dir>" >&2
+    echo "Example: $0 get-lxc centos/6 centos6_dir" >&2
+    echo "Architectures (<arch>): i386 (x86), amd64 (x86_64), s390x, ppc64el, armhf, aarch64." >&2
+    return 1
+  fi
+  # Typically redirects to http://uk.images.linuxcontainers.org/...
+  # http://uk.images.linuxcontainers.org/streams/v1/index.json
+  __qq_get_cloud_image__ http://images.linuxcontainers.org/streams/v1/images.json "$ARCH" "$@"
+}
+
+
+# Download from http://cloud-images.ubuntu.com/
+__qq_get_ubuntu__() {
+  local ARCH=i386
+  if test "$1" == --arch && test $# -gt 1; then
+    ARCH="$2"
+    shift; shift
+  fi
+  if test -z "$1" || test "$1" == --help || test $# != 2; then
+    echo "Usage:   $0 get-ubuntu [--arch=<arch>] <distro> <target-dir>" >&2
+    echo "Example: $0 get-ubuntu bionic bionic_dir" >&2
+    echo "Architectures (<arch>): i386 (x86), amd64 (x86_64), s390x, ppc64el, armhf, aarch64." >&2
+    return 1
+  fi
+  # http://cloud-images.ubuntu.com/releases/streams/v1/index.json
+  __qq_get_cloud_image__ http://cloud-images.ubuntu.com/releases/streams/v1/com.ubuntu.cloud:released:download.json "$ARCH" "$@"
+}
+
 __qq__() {
-  if test "$1" = pts-debootstrap; then
-    shift
-    __qq_pts_debootstrap__ "$@"
-    return "$?"
-  elif test "$1" = get-alpine; then
-    shift
-    __qq_get_alpine__ "$@"
-    return "$?"
+  if test "$1" = pts-debootstrap; then shift; __qq_pts_debootstrap__ "$@"; return "$?"
+  elif test "$1" = get-alpine; then shift; __qq_get_alpine__ "$@"; return "$?"
+  elif test "$1" = get-lxc; then shift; __qq_get_lxc__ "$@"; return "$?"
+  elif test "$1" = get-ubuntu; then shift; __qq_get_ubuntu__ "$@"; return "$?"
   fi
   local __QQD__="$PWD" __QQFOUND__
   test "${__QQD__#/}" = "$__QQD__" && __QQD__="$(pwd)"
