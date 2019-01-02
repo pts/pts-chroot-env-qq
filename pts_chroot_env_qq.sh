@@ -360,7 +360,6 @@ __qq_get_lxc__() {
   __qq_get_cloud_image__ http://images.linuxcontainers.org/streams/v1/images.json "$ARCH" "$@"
 }
 
-
 # Download from http://cloud-images.ubuntu.com/
 __qq_get_ubuntu__() {
   local ARCH=i386
@@ -378,11 +377,74 @@ __qq_get_ubuntu__() {
   __qq_get_cloud_image__ http://cloud-images.ubuntu.com/releases/streams/v1/com.ubuntu.cloud:released:download.json "$ARCH" "$@"
 }
 
+# Download from Docker Hub (https://hub.docker.com/).
+__qq_get_docker__() {
+  if test -z "$1" || test "$1" == --help || test $# != 2; then
+    echo "Usage:   $0 get-docker <image> <target-dir>" >&2
+    echo "Example: $0 get-docker busybox busybox_dir" >&2
+    echo "Example: $0 get-docker alpine alpine_dir" >&2
+    echo "Example: $0 get-docker bitnami/minideb:stretch stretch_dir" >&2
+    return 1
+  fi
+  local IMAGE="$1" DIR="$2"
+
+  local SUDO=sudo
+  test "$EUID" = 0 && SUDO=
+
+  test "${DIR#/}" = "$DIR" && DIR="./$DIR"
+  if test -d "$DIR"; then
+    echo "qq: fatal: target directory already exists, not clobbering: $DIR" >&2
+    return 100
+  fi
+  rm  -rf "$DIR.get" 2>/dev/null
+  test -d "$DIR.get" && $SUDO rm -rf "$DIR.get"
+  if ! mkdir -p "$DIR.get"; then
+    echo "qq: fatal: mkdir failed" >&2
+    return 109
+  fi
+
+  if ! docker version >/dev/null 2>&1; then
+    echo "qq: fatal: please install Docker first" >&2
+    return 101
+  fi
+
+  local CONTAINER="qq_get_docker__$(echo "$IMAGE" | perl -pe 's@[^-\w\n]+@__@g')"
+  docker rm -f "$CONTAINER" >/dev/null 2>&1
+  echo "qq: info: downloading Docker image: $IMAGE" >&2
+  if ! docker create --name "$CONTAINER" "$IMAGE" >/dev/null; then
+    echo "qq: fatal: error downloading Docker image: $IMAGE" >&2
+    docker rm "$CONTAINER" >/dev/null
+    return 102
+  fi
+  echo "qq: info: extracting  Docker image: $IMAGE" >&2
+  if ! (docker export "$CONTAINER" | (cd "$DIR.get" && $SUDO tar --numeric-owner -x && $SUDO sh -c ': >>extract.ok')); then
+    echo "qq: fatal: error extracting Docker image: $IMAGE" >&2
+    docker rm "$CONTAINER" >/dev/null
+    rm  -rf "$DIR.get" 2>/dev/null
+    test -d "$DIR.get" && $SUDO rm -rf "$DIR.get"
+    return 103
+  fi
+  if ! (test -f "$DIR.get/extract.ok" &&
+        # /etc/qqsystem is needed by $IMAGE busybox, because it doesn't have /sbin/init and /etc/issue.
+        $SUDO sh -c 'rm -f "$1/extract.ok" && mkdir -p "$1"/etc && : >>"$1/etc/qqsystem"' . "$DIR.get" &&
+        docker rm "$CONTAINER" >/dev/null &&
+        mv "$DIR".get "$DIR"); then
+    echo "qq: fatal: error fixing Docker image: $IMAGE" >&2
+    docker rm "$CONTAINER" >/dev/null
+    rm  -rf "$DIR.get" 2>/dev/null
+    test -d "$DIR.get" && $SUDO rm -rf "$DIR.get"
+    return 103
+  fi
+  echo "qq: info: Docker image $IMAGE installed to: $DIR" >&2
+  __qq_init__ "$DIR"
+}
+
 __qq__() {
   if test "$1" = pts-debootstrap; then shift; __qq_pts_debootstrap__ "$@"; return "$?"
   elif test "$1" = get-alpine; then shift; __qq_get_alpine__ "$@"; return "$?"
   elif test "$1" = get-lxc; then shift; __qq_get_lxc__ "$@"; return "$?"
   elif test "$1" = get-ubuntu; then shift; __qq_get_ubuntu__ "$@"; return "$?"
+  elif test "$1" = get-docker; then shift; __qq_get_docker__ "$@"; return "$?"
   fi
   local __QQD__="$PWD" __QQFOUND__
   test "${__QQD__#/}" = "$__QQD__" && __QQD__="$(pwd)"

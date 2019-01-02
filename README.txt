@@ -148,17 +148,16 @@ How to create a chroot environment:
   To get a full list of Linux distributions available, run
   `qq get-lxc . get_dir'.
 
-* To install an initial chroot environment based on a Docker image, install
-  Docker first, and then run something like:
-
-    $ mkdir busybox_dir &&
-      docker create --name busybox_export busybox >/dev/null &&
-      mkdir busybox_dir/etc && touch busybox_dir/etc/qqsystem &&
-      docker export busybox_export | (cd busybox_dir && sudo tar x) &&
-      docker rm busybox_export >/dev/null
+* To install an initial chroot environment based on a Docker image
+  (typically for amd64 or i386 architecture), install
+  Docker first, and then run `qq get-docker IMAGE TARGETDIR', e.g.
+  `qq get-docker busybox busybox_dir' or
+  `qq get-docker alpine alpine_dir' or
+  `qq get-docker bitnami/minideb:stretch stretch_dir'.
 
   Use the chroot environment normally:
 
+    $ qq get-docker busybox busybox_dir
     $ cd busybox_dir/tmp
     $ qq
     [qq=busybox_dir] USER@HOST:/tmp$ exit
