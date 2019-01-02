@@ -250,8 +250,9 @@ sub detect_unshare() {
   return ("close $^X: $!", undef, undef) if !close(FH);
   my $arch = "unknown";
   my ($SYS_mount, $SYS_unshare);
+  # All architectures supported by Debian 9 Stretch are here, plus some more.
   # https://en.wikipedia.org/wiki/Executable_and_Linkable_Format#File_header
-# System call numbers: https://fedora.juszkiewicz.com.pl/syscalls.html
+  # System call numbers: https://fedora.juszkiewicz.com.pl/syscalls.html
   if (/\A\x7FELF\x02\x01\x01[\x00\x03]........[\x02\x03]\x00\x3E/s) {
     $arch = "amd64";  # x86_64, x64.
     return (undef, 165, 272);
@@ -262,8 +263,26 @@ sub detect_unshare() {
     $arch = "i386";  # i486, i586, i686, x86.
     return (undef, 21, 310);
   } elsif (/\A\x7FELF\x01\x01\x01[\x00\x03]........[\x02\x03]\x00\x28/s) {
-    $arch = "arm";  # arm32.
+    $arch = "arm";  # arm32, armel, armhf.
     return (undef, 21, 337);
+  } elsif (/\A\x7FELF\x02\x02\x01[\x00\x03]........\x00[\x02\x03]\x00/s) {
+    $arch = "s390x";  # s390. s390x for Debian 9. Last byte is 0 (no architecture).
+    return (undef, 21, 303);
+  } elsif (/\A\x7FELF\x01\x02\x01[\x00\x03]........\x00[\x02\x03][\x00\x08]/s) {
+    $arch = "mips";  # mips for Debian 9. Last byte is 0 (no architecture).
+    return (undef, 4021, 4303);
+  } elsif (/\A\x7FELF\x02\x01\x01[\x00\x03]........[\x02\x03]\x00\x08/s) {
+    $arch = "mips64el";
+    return (undef, 5160, 5262);  # For mips64n32, SYS_unshare is 6266.
+  } elsif (/\A\x7FELF\x01\x01\x01[\x00\x03]........[\x02\x03]\x00\x08/s) {
+    $arch = "mipsel";  # Like mips, but LSB-first (little endiel).
+    return (undef, 4021, 4303);
+  } elsif (/\A\x7FELF\x02\x01\x01[\x00\x03]........[\x02\x03]\x00\x15/s) {
+    $arch = "ppc64el";  # ppc64, powerpc64.
+    return (undef, 21, 282);
+  } elsif (/\A\x7FELF\x01\x01\x01[\x00\x03]........[\x02\x03]\x00\x15/s) {
+    $arch = "ppc32el";  # ppc32, powerpc32, powerpc.
+    return (undef, 21, 282);
   } else {
     return ("unknown architecture for the Perl process\n", undef, undef);
   }
