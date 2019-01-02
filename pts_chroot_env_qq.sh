@@ -6,6 +6,13 @@
 # This shell script works with bash, zsh, dash and busybox sh.
 #
 
+# Initialize a chroot directory (e.g. /etc/passwd within) for the current
+# user. This is useful so that next time the user can enter the chroot
+# environment without sudo (e.g. unshare) on Linux.
+__qq_init__() {
+  (cd "$1" && __qq__ sh -c :)
+}
+
 __qq_pts_debootstrap__() {
   if test -z "$1" || test "$1" == --help || test $# -lt 2; then
     echo "Usage:   $0 pts-debootstrap [<flag>...] <debian-distro-name> <target-dir>" >&2
@@ -163,6 +170,7 @@ __qq_get_alpine__() {
     exit 105
   fi
   echo "qq: info: Alpine Linux $VERSION installed to: $DIR" >&2
+  __qq_init__ "$DIR"
 }
 
 __qq_get_cloud_image__() {
@@ -322,7 +330,7 @@ __qq_get_cloud_image__() {
     return 104
   fi
   echo "qq: info: Linux distro $DISTRO installed to: $DIR" >&2
-  # !! TODO(pts): Run `qq id' for initial setup for the user.
+  __qq_init__ "$DIR"
 }
 
 # Download from http://images.linuxcontainers.org/
