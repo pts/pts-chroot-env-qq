@@ -49,8 +49,11 @@ __qq_pts_debootstrap__() {
     echo "qq: fatal: could not find URL of pts-debootstrap-latest.sfx.7z" >&2
     return 102
   fi
-  rm -rf   "$DIR.pts-debootstrap"
-  mkdir -p "$DIR.pts-debootstrap"
+  rm -rf "$DIR.pts-debootstrap"
+  if ! mkdir -p "$DIR.pts-debootstrap"; then
+    echo "qq: fatal: mkdir failed" >&2
+    return 109
+  fi
   if wget -qO "$DIR.pts-debootstrap/pts-debootstrap-latest.sfx.7z" "$URL" &&
      test -s "$DIR.pts-debootstrap/pts-debootstrap-latest.sfx.7z"; then
     :
@@ -120,7 +123,10 @@ __qq_get_alpine__() {
   fi
   rm  -rf "$DIR.get" 2>/dev/null
   test -d "$DIR.get" && $SUDO rm -rf "$DIR.get"
-  mkdir -p "$DIR.get/alpine.dir"
+  if ! mkdir -p "$DIR.get/alpine.dir"; then
+    echo "qq: fatal: mkdir failed" >&2
+    return 109
+  fi
   if test "${VERSION#*.*.*}" != "$VERSION"; then
     VERSION="${VERSION#v}"
     local VERSION_SUFFIX="${VERSION#*.*.}"
@@ -192,7 +198,10 @@ __qq_get_cloud_image__() {
   fi
   rm  -rf "$DIR.get" 2>/dev/null
   test -d "$DIR.get" && $SUDO rm -rf "$DIR.get"
-  mkdir -p "$DIR.get/rootfs.dir"
+  if ! mkdir -p "$DIR.get/rootfs.dir"; then
+    echo "qq: fatal: mkdir failed" >&2
+    return 109
+  fi
   local BASE_URL="${URL%%/streams/v1/*}/"
 
   echo "qq: info: downloading distro list: $URL" >&2
