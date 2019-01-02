@@ -1,9 +1,48 @@
-pts-chroot-env-qq: convenient chroot entry point
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+pts-chroot-env-qq: convenient chroot creation and entering
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 pts_chroot_env_qq.sh is script (containing shell and Perl code) which lets
-the user conveniently enter a chroot environment on Unix systems. It's a
-combination of sudo + chroot + su to regular user + cd + setting some the
-environment variables.
+the user conveniently create chroot environments on Unix systems and enter
+them either as a regular user or as root. sudo is used for the chroot
+environment creation and entering, except that on Linux entering as a
+regular user works in rootless mode (without sudo).
+
+When entering a chroot environment, pts_chroot_env_qq.sh does roughly this:
+walk up to find the chroot directory + sudo + chroot + (su to regular user) +
+cd back to the directory + adding a line to /etc/passwd + creating an
+in-chroot home directory + setting some the environment variables.
+
+Advantages of pts_chroot_env_qq.sh:
+
+* It can create a new chroot environment containing a vanilla Linux
+  distribution or Docker image by running a single command. No need to
+  download filesystem .iso or .squashfs images or .tar.gz dumps manually.
+* It can be used conveniently as a regular user, no need to run any code
+  within the chroot environment as root.
+* Data files can be shared between the chroot and the host systems: the host
+  system sees files within the chroot environment, even when working as a
+  regular user (non-root). There is no need to copy, chown or chmod data files.
+* The root directory of the chroot environment is autodetected, and the
+  current directory is retained, so no need to run `cd' manually.
+* It retains the environment variables by default, but modifies some of
+  them so thet everything works conveniently.
+
+Typical use case for compiling the same code with different compilers:
+
+  $ qq get-ubuntu precise precise_dir
+  $ mkdir precise_dir/tmp/myproject
+  $ cd precise_dir/tmp/myproject
+  $ echo '#include <stdio.h>' >hello.c
+  $ echo 'int main() { return !printf("Hello, World!\n"); }' >>hello.c
+  $ sudo apt-get update  # On the host system.
+  $ sudo apt-get -y install gcc
+  $ gcc -static -o hello.host hello.c
+  $ qq apt-get update  # In the chroot.
+  $ qq apt-get -y install gcc
+  $ qq gcc -static -o hello.chroot hello.c
+  $ qq ./hello.host  # Run host-compiled binary in the chroot environment.
+  Hello, World!
+  $ ./hello.chroot  # Run chroot-compiled binary on the host.
+  Hello, World!
 
 Convenience functionality provided by pts_chroot_env_qq.sh:
 
@@ -42,7 +81,7 @@ Convenience functionality provided by pts_chroot_env_qq.sh:
   /var/myprog2dir will be removed).
 * On Linux it hides the /proc and /dev/pts mounts from the host system (using
   unshare(CLONE_NEWNS), equivalent to `unshare -m').
-* On Linux 3.8 or later it operates in rootless mode (i.e. as the normal
+* On Linux 3.8 or later it operates in rootless mode (i.e. as the non-root
   user who has invoked it) by default (using unshare(CLONE_NEWUSER)): it
   doesn't even need sudo to root. (Limitations: sudo to root is needed for
   the creation of the chroot directory and its contents such as /dev/null, for
@@ -50,6 +89,7 @@ Convenience functionality provided by pts_chroot_env_qq.sh:
 * On Linux it automates the creation of chroot environments with
   Linux distributions Ubuntu, Debian and Alpine. (For this sudo to root is
   needed.)
+* It removes X11, GUI desktop (e.g. D-Bus) and SSH environment variables.
 
 Requirements on the host system:
 
@@ -82,6 +122,94 @@ Installation:
   (recommended), e.g.:
 
     $ sudo ln -s /.../pts_chroot_env_qq.sh /usr/local/bin/qq
+* Start using it by creating a chroot environment (see below) and entering
+  it (see below).
+
+How to create a chroot environment:
+
+* Skip this section if you already have a chroot environment created and
+  extracted to a directly accessible directory.
+
+* To install an initial chroot environment
+  for Linux distribution Alpine, run `qq get-alpine VERSION TARGETDIR', e.g.
+
+    $ qq get-alpine latest-stable alpine_dir
+    $ cd alpine_dir
+    $ qq busybox | head
+    BusyBox v1.28.4 (2018-12-06 15:13:21 UTC) multi-call binary.
+
+  Please note that the default `--arch i386' is used. To use a different
+  architecture, specigy `--arch ARCH'.
+
+* To install an initial chroot environment for a recent version of the
+  Linux distribution Ubuntu using their cloud image repository, run
+  `qq get-ubuntu DISTRO TARGETDIR', e.g. `qq get-ubuntu bionic bionic_dir'
+  or `qq get-ubuntu zesty zesty_dir'. The oldest available Ubuntu is 10.04
+  (lucid), but it doesn't contain a root filesystem image; to oldest which
+  actually works is Ubuntu 12.04 (precise), run ``qq get-ubuntu precise
+  precise_dir' to get it.
+
+  To get a full list of Ubuntu releases available, run
+  `qq get-ubuntu . get_dir'.
+
+* To install an initial chroot environment for a recent version of a
+  Linux distribution using the LXC (or LXD) cloud image repository, run
+  `qq get-lxc DISTRO TARGETDIR', e.g. `qq get-lxc centos/6 centos_dir'.
+  Alpine Linux is also available from this repository.
+
+  To get a full list of Linux distributions available, run
+  `qq get-lxc . get_dir'.
+
+  On 2019-01-02, the repository contained the following Linux distributions:
+  Debian (buster, jessie, sid, stetch, wheezy), Ubuntu Core, Ubuntu (bionic,
+  cosmic, disco, trusty, xenial), Alpine (3.4 ... 3.8), Arch, CentOS (6 and
+  7), Fedora (26, 27, 28, 29), Gentoo, openSUSE (15, 42), Oracle (6, 7),
+  Plamo (5, 6, 7), Sabayon.
+
+* To install an initial chroot environment based on a Docker image
+  (typically for amd64 or i386 architecture), install
+  Docker first, and then run `qq get-docker IMAGE TARGETDIR', e.g.
+  `qq get-docker busybox busybox_dir' or
+  `qq get-docker alpine alpine_dir' or
+  `qq get-docker bitnami/minideb:stretch stretch_dir'.
+
+  Use the chroot environment normally:
+
+    $ qq get-docker busybox busybox_dir
+    $ cd busybox_dir/tmp
+    $ qq
+    [qq=busybox_dir] USER@HOST:/tmp$ exit
+
+  Recommended small Docker images: busybox, alpine, minideb,
+  minideb:stretch, minideb:jessie, minideb:wheezy.
+
+  More info about minideb (small Debian-based Docker image for amd64
+  architecture):
+
+  * https://github.com/bitnami/minideb
+  * https://hub.docker.com/r/bitnami/minideb/tags/
+
+* To install an initial chroot environment on Linux i386 or amd64 systems
+  for Linux distributions Ubuntu and Debian using Debootstrap (more
+  specifically, pts-debootstrap: https://github.com/pts/pts-debootstrap/),
+  run `qq debootsrap DISTRO TARGETDIR', e.g.
+
+    $ qq pts-debootstrap feisty feisty_dir
+    $ cd feisty_dir
+    $ bash --version | head -1  # Host system.
+    GNU bash, version 4.4.12(1)-release (x86_64-pc-linux-gnu)
+    $ qq bash --version | head -1  # Feisty in chroot.
+    GNU bash, version 3.2.13(1)-release (i486-pc-linux-gnu)
+
+  Please note that `qq pts-debootstrap' may take several minutes to finish,
+  thus it is slower than `qq get-lxc', `qq get-ubuntu' and `qq get-docker'.
+  The advantage of `qq pts-debootstrap' is that it supports very old Ubuntu
+  and Debian releases: Debian slink (Debian 2.1, released on 1999-03-19) and
+  Ubuntu feisty (Ubuntu 7.04, released 2007-04-19) both work.
+
+* You can use any other method you already know to create the chroot
+  environment. If it doesn't have /sbin/init and /etc/issue, then create a
+  file named /etc/qqsystem there.
 
 Usage:
 
@@ -108,72 +236,6 @@ Usage:
 * To force rootless mode, run qq use-rootless [...].
 * To force sudo for the initial setup (rather than rooless mode), run qq
   use-sudo [...].
-
-How to create a chroot environment:
-
-* To install an initial chroot environment on Linux i386 or amd64 systems
-  for Linux distributions Ubuntu and Debian
-  using pts-debootstrap (https://github.com/pts/pts-debootstrap/), run
-  `qq debootsrap DISTRO TARGETDIR', e.g.
-
-    $ qq pts-debootstrap feisty feisty_dir
-    $ cd feisty_dir
-    $ bash --version | head -1  # Host system.
-    GNU bash, version 4.4.12(1)-release (x86_64-pc-linux-gnu)
-    $ qq bash --version | head -1  # Feisty in chroot.
-    GNU bash, version 3.2.13(1)-release (i486-pc-linux-gnu)
-
-* To install an initial chroot environment
-  for Linux distribution Alpine, run `qq get-alpine VERSION TARGETDIR', e.g.
-
-    $ qq get-alpine latest-stable alpine_dir
-    $ cd alpine_dir
-    $ qq busybox | head
-    BusyBox v1.28.4 (2018-12-06 15:13:21 UTC) multi-call binary.
-
-  Please note that the default `--arch i386' is used. To use a different
-  architecture, specigy `--arch ARCH'.
-
-* To install an initial chroot environment for a recent version of the
-  Linux distribution Ubuntu using their cloud image repository, run
-  `qq get-ubuntu DISTRO TARGETDIR', e.g. `qq get-ubuntu bionic bionic_dir'
-  or `qq get-ubuntu zesty zesty_dir'. The oldest available Ubuntu is 10.04
-  (lucid), run ``qq get-ubuntu lucid lucid_dir' to get it.
-
-* To install an initial chroot environment for a recent version of a
-  Linux distribution using the LXC (or LXD) cloud image repository, run
-  `qq get-lxc DISTRO TARGETDIR', e.g. `qq get-lxc centos/6 centos_dir'.
-  Alpine Linux is also available from this repository.
-
-  To get a full list of Linux distributions available, run
-  `qq get-lxc . get_dir'.
-
-* To install an initial chroot environment based on a Docker image
-  (typically for amd64 or i386 architecture), install
-  Docker first, and then run `qq get-docker IMAGE TARGETDIR', e.g.
-  `qq get-docker busybox busybox_dir' or
-  `qq get-docker alpine alpine_dir' or
-  `qq get-docker bitnami/minideb:stretch stretch_dir'.
-
-  Use the chroot environment normally:
-
-    $ qq get-docker busybox busybox_dir
-    $ cd busybox_dir/tmp
-    $ qq
-    [qq=busybox_dir] USER@HOST:/tmp$ exit
-
-  Recommended small Docker images: busybox, alpine, minideb,
-  minideb:stretch, minideb:jessie, minideb:wheezy.
-
-  More info about minideb (small Debian-based Docker image for amd64
-  architecture):
-
-  * https://github.com/bitnami/minideb
-  * https://hub.docker.com/r/bitnami/minideb/tags/
-
-* You can use any other method you already know to create the chroot
-  environment. If it doesn't have /sbin/init and /etc/issue, then create a
-  file named /etc/qqsystem there.
 
 Compatibility with old Linux systems:
 
@@ -217,17 +279,5 @@ Alternatives of pts_chroot_env_qq.sh:
 
 * multistrap (https://wiki.debian.org/Multistrap) is a cross-architecture,
   manual (a bit hacky) version of debootstrap.
-
-Future plans and ideas:
-
-* Download Docker images, e.g. small Debian images (stretch, jessie, wheezy,
-  unstable) from: https://github.com/bitnami/minideb
-
-* Download images from http://images.linuxcontainers.org/ also using
-  http://images.linuxcontainers.org/streams/v1/index.json . It contains:
-  Debian (buster, jessie, sid, stetch, wheezy), Ubuntu Core, Ubuntu (bionic,
-  cosmic, disco, trusty, xenial), Alpine (3.4 ... 3.8), Arch, CentOS (6 and
-  7), Fedora (26, 27, 28, 29), Gentoo, openSUSE (15, 42), Oracle (6, 7),
-  Plamo (5, 6, 7), Sabayon.
 
 __END__
