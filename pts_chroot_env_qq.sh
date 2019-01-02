@@ -195,23 +195,12 @@ __qq__() {
     echo "qq: fatal: system-in-chroot not found up from: $PWD" >&2
     return 124
   fi
-  # TODO(pts): Set up /etc/hosts and /etc/resolve.conf automatically.
-  # TODO(pts): As an alternative to `sudo -E chroot`, run the non-root mode in
-  #            nsjail, so not even temporary root access is needed.
-  # TODO(pts): Support qq1, qq2 (i.e. multiple execution environments). How
-  #            can they see the same local directory?
-  __QQIN__='
-#! /usr/bin/perl -w
-# qqin: Entry point for qq from `sudo -E chroot`.
-#
-# This Perl script can manage environment variables (and pass them to the
-# command in @ARGV) precisely, because it does not invoke a shell, does not
-# invoke su(1) or sudo(1).
-#
-
+  local __QQLIB__='
 BEGIN { $^W = 1 }
 use integer;
 use strict;
+
+my $qqin = "qqin";  # Can be overwritten.
 
 sub CLONE_NEWUSER() { 0x10000000 }  # New user namespace.
 sub CLONE_NEWNS() { 0x20000 }       # New mount namespace.
@@ -288,53 +277,287 @@ sub detect_unshare() {
   }
 }
 
-#die "qqin: fatal: unexpected \$0: $0\n" if $0 ne "...";
-die "qqin: fatal: must be run as root\n" if $> != 0;
-$( = 0;
-$) = "0 0";  # Also involves an empty setgroups.
-$< = 0;  # setuid(0).
+# Returns true iff entry was already there.
+sub ensure_auth_line($$;$) {
+  my($filename, $line, $is_check) = @_;
+  $line =~ s@\n@@g;
+  $line .= "\n";
+  die "$qqin: assert: bad auth line: $line" if $line !~ m@\A([^:\n]+:)@;
+  my $prefix = $1;
+  local *FH;  # my($fh) does not work in Perl 5.004.
+  my $is_readonly = !open(FH, "+< $filename");
+  die "$qqin: fatal: open $filename: $!\n" if
+      $is_readonly and !open(FH, "< $filename");
+  my $fl;
+  while (defined($fl = <FH>)) {
+    if (substr($fl, 0, length($prefix)) eq $prefix) {
+      close(FH);
+      return 1;
+    }
+  }
+  if ($is_check) {
+    close(FH);
+    return 0;
+  }
+  if ($is_readonly) {
+    die "$qqin: fatal: open-write $filename: $!\n" if !open(FH, "+< $filename");
+  } else {
+    die "$qqin: fatal: seek: $!\n" if !sysseek(FH, 0, 2);
+  }
+  die "$qqin: fatal: syswrite: $!\n" if
+      length($line) != (syswrite(FH, $line, length($line)) or 0);
+  die "$qqin: fatal: close: $!\n" if !close(FH);
+  0
+}
+
+sub get_username() {
+  my @pwd = getpwuid($>);
+  @pwd = ($ENV{USER} or $ENV{LOGNAME}) if !@pwd;
+  die "$qqin: fatal: cannot detect username\n" if !@pwd;
+  $pwd[0]
+}
+
+sub is_owned_and_rwx($$) {
+  my ($path, $uid) = @_;
+  my @stat = stat($path);
+  @stat and $stat[4] == $uid and ($stat[2] & 0700) == 0700;
+}
+'
+  __QQPRESUDO__='
+# qqpresudo: Entry point for qq before sudo or unshare.
+
+'"$__QQLIB__"'
+
+$qqin = "qqpresudo";
+my $qqd = $ENV{__QQD__};
+die "$qqin: fatal: empty \$ENV{__QQD__}\n" if !defined($qqd) and !length($qqd);
+die "$qqin: fatal: \$ENV{__QQD__} does not start with /: $qqd" if
+    substr($qqd, 0, 1) ne "/";
+
+# Returns $unshare_error which is undef on no error, otherwise true.
+sub try_unshare() {
+  my ($unshare_error, $SYS_mount, $SYS_unshare) = detect_unshare();
+  if (defined($unshare_error) or !defined($SYS_unshare)) {
+    $unshare_error = "detect_unshare failed" if !defined($unshare_error);
+  } elsif ($< != $>) {
+    $unshare_error = "real and effective UID are different (running as setuid?)";
+  } elsif ($( + 0 != $) + 0) {
+    $unshare_error = "real and effective GID are different (running as setgid?)";
+  } else {
+    my $pid = fork();
+    exit(!(!(syscall($SYS_unshare, CLONE_NEWUSER)))) if !$pid;  # Child.
+    my $pid2 = waitpid($pid, 0);
+    if (!($pid == $pid2 and $? == 0)) {
+      $unshare_error = "unshare CLONE_NEWUSER failed";
+    } else {  # Check that whatever qqin is doing to set up as root has been done.
+      my $username = eval { get_username() };
+      if (!defined($username)) {
+        $unshare_error = "cannot detect username";
+      } elsif (!stat("$qqd/proc") or !-d(_)) {
+        # TODO(pts): Do not follow local symlinks above and elsewhere.
+        $unshare_error = "not a directory: $qqd/proc";
+      } elsif (!stat("$qqd/dev/pts") or !-d(_)) {
+        # TODO(pts): Do not follow local symlinks above and elsewhere.
+        $unshare_error = "not a directory: $qqd/dev/pts";
+      } elsif ((readlink("$qqd$qqd") or 0) ne "/") {
+        # TODO(pts): Do not follow local symlinks above and elsewhere.
+        $unshare_error = "symlink does not point to /: $qqd$qqd";
+      } elsif (!-d("$qqd/home/$username")) {
+        # TODO(pts): Do not follow local symlinks above and elsewhere.
+        $unshare_error = "home directory does not exist: $qqd/home/$username";
+      } elsif (!is_owned_and_rwx("$qqd/home/$username", $>)) {
+        # TODO(pts): Do not follow local symlinks above and elsewhere.
+        $unshare_error = "home directory not owned by $username and rwx: $qqd/home/$username";
+      } elsif (!ensure_auth_line("$qqd/etc/passwd", "$username:", 1)) {
+        # TODO(pts): Do not follow local /etc symlinks above and elsewhere.
+        # TODO(pts): Try to fix it if /etc/passwd, /etc/group and /etc/shadow are writable.
+        # TODO(pts): Also check that the UID and GID are specified correctly.
+        $unshare_error = "username $username missing from passwd (to fix, run \`qq root id\x27): $qqd/etc/passwd";
+      } else {
+        $unshare_error = undef;
+      }
+    }
+  }
+  $unshare_error
+}
+
+my @sudo = ("sudo", "-E");
+$ENV{__QQUNSHARE__} = 0;
+my @run_as_root = (
+    "root", "su", "sudo", "login", "passwd", "apt-get", "apt", "dpkg", "rpm",
+    "yum", "apk");
+if (@ARGV and grep ({ $_ eq $ARGV[0] } @run_as_root)) {
+  unshift @ARGV, "root" if $ARGV[0] ne "root";
+} elsif (@ARGV and $ARGV[0] eq "use-sudo") {  # Override autodetection.
+  shift @ARGV;
+} elsif (@ARGV and ($ARGV[0] eq "use-unshare" or $ARGV[0] eq "use-rootless")) {  # Override autodetection.
+  shift @ARGV;
+  my $unshare_error = try_unshare();
+  die "$qqin: fatal: use-unshare failed: $unshare_error\n" if
+      $unshare_error;
+  @sudo = ();
+  $ENV{__QQUNSHARE__} = 1;  # Use unshare (rootless) instead of sudo + chroot.
+} elsif (!$>) {  # Running as root (EUID 0), no need to run sudo manually.
+  @sudo = ();
+  unshift @ARGV, "root";  # Make sure qqin does not look for $ENV{SUDO_USER} etc.
+} elsif (-f("$qqd/etc/qqforceroot")) {
+} elsif (!try_unshare()) {
+  @sudo = ();
+  $ENV{__QQUNSHARE__} = 1;  # Use unshare (rootless) instead of sudo + chroot.
+}
+if ($ENV{__QQUNSHARE__}) {
+  die "$qqin: fatal: real and effective UID are different (running as setuid?)\n" if $< != $>;
+  die "$qqin: fatal: real and effective UID are different (running as setgid?)\n" if $( + 0 != $) + 0;
+  $ENV{USER} = $ENV{LOGNAME} = $ENV{USERNAME} = get_username();
+  ($ENV{SUDO_USER}, $ENV{SUDO_UID}, $ENV{SUDO_GID}) = ($ENV{USER}, $>, $) + 0);
+} else {
+  delete @ENV{"USER", "LOGNAME", "USERNAME", "SUDO_USER", "SUDO_UID", "SUDO_GID"};
+}
+die "$qqin: fatal: exec failed: $!\n" if
+    !exec(@sudo, $^X, "-weeval\$ENV{__QQIN__};die\$\@if\$\@", "--", @ARGV);
+' __QQIN__='
+# qqin: Entry point for qq after sudo.
+#
+# This Perl script can manage environment variables (and pass them to the
+# command in @ARGV) precisely, because it does not invoke a shell, does not
+# invoke su(1) or sudo(1).
+#
+# TODO(pts): Set up /etc/hosts and /etc/resolve.conf automatically.
+# TODO(pts): Support qq1, qq2 (i.e. multiple execution environments). How
+#            can they see the same local directory?
+
+'"$__QQLIB__"'
 
 my $qqd = $ENV{__QQD__};
 my $qqpath = $ENV{__QQPATH__};
 my $pwd = $ENV{PWD};
 my $home = $ENV{__QQHOME__};
-die "qqin: fatal: empty \$ENV{__QQD__}\n" if !$qqd;
-die "qqin: fatal: empty \$ENV{__QQPATH__}\n" if !$qqpath;
+die "$qqin: fatal: empty \$ENV{__QQD__}\n" if !defined($qqd) and !length($qqd);
+die "$qqin: fatal: empty \$ENV{__QQPATH__}\n" if !$qqpath;
 # Too late for a getpwnam or getpwuid after a chroot.
-die "qqin: fatal: empty \$ENV{__QQHOME__}\n" if !$home;
-die "qqin: fatal: bad QQD snytax: $qqd\n" if $qqd !~ m@\A(/[^/]+)+@;
-die "qqin: fatal: bad PWD snytax: $pwd\n" if $pwd !~ m@\A(/[^/]+)+@;
-die "qqin: fatal: QQD is not a prefix of PWD" if
+die "$qqin: fatal: empty \$ENV{__QQHOME__}\n" if !$home;
+die "$qqin: fatal: bad QQD snytax: $qqd\n" if $qqd !~ m@\A(/[^/]+)+@;
+die "$qqin: fatal: bad PWD snytax: $pwd\n" if $pwd !~ m@\A(/[^/]+)+@;
+die "$qqin: fatal: missing \$ENV{__QQUNSHARE__}" if !defined($ENV{__QQUNSHARE__});
+my $do_unshare=!(!($ENV{__QQUNSHARE__}));
+die "$qqin: fatal: QQD is not a prefix of PWD" if
     0 == length($pwd) or substr("$pwd/", 0, length($qqd) + 1) ne "$qqd/";
 if ($ENV{__QQLCALL__}) {
   $ENV{LC_ALL} = $ENV{__QQLCALL__};
 } else {
   delete $ENV{LC_ALL};
 }
-delete @ENV{"__QQD__", "__QQPATH__", "__QQHOME__", "__QQLCALL__", "__QQIN__"};
+delete @ENV{"__QQD__", "__QQPATH__", "__QQHOME__", "__QQLCALL__", "__QQIN__", "__QQPRESUDO__", "__QQUNSHARE__"};
 # We must call this before chroot(...), for the correct $^X value.
 my ($unshare_error, $SYS_mount, $SYS_unshare) = detect_unshare();
-# We must call this on our roout (/) before chroot to take effect.
-if (defined($SYS_unshare) and !syscall($SYS_unshare, CLONE_NEWNS)) {
-  # Without this call CLONE_NEWS does not take effect when run as root.
-  my @spec = ("none", "/", 0, MS_REC | MS_PRIVATE, 0);
-  #die "fatal: mount /: $!\n" if
-  syscall($SYS_mount, @spec);
+
+if ($do_unshare) {
+  # $ENV{SUDO_USER}, $ENV{SUDO_UID} and $ENV{SUDO_GID} is already set up by qqpresudo.
+  # Do the CLONE_NEWUSER + uid_map magic. Without this CLONE_NEWNS would
+  # return EPERM.
+  my $pid = $$;
+  local (*HR, *PW, *PR, *HW);
+  die "$qqin: fatal: pipe1: $!\n" if !pipe(HR, PW);
+  die "$qqin: fatal: pipe2: $!\n" if !pipe(PR, HW);
+  my $child_pid = fork();
+  die "$qqin: fatal: fork: $!\n" if !defined($child_pid);
+  if (!$child_pid) {  # Child process.
+    close(PR); close(PW);
+    # Wait for parent do CLONE_NEWUSER first.
+    exit(-1) if !sysread(HR, $_, 1);
+    local *FH;
+    die "$qqin: fatal: child: open uid_map: $!\n" if !open(FH, "> /proc/$pid/uid_map");
+    $_ = "$> $> 1\n";  # Unfortunately we are not able to map just any in-chroot UID to $>.
+    die "$qqin: fatal: child: write uid_map: $!\n" if (syswrite(FH, $_, length($_)) or 0) != length($_);
+    die "$qqin: fatal: child: close uid_map: $!\n" if !close(FH);
+    die "$qqin: fatal: child: open setgroups: $!\n" if !open(FH, "> /proc/$pid/setgroups");
+    # This disables the groups: groups=65534(nogroup),65534(nogroup),... .
+    $_ = "deny\n";
+    die "$qqin: fatal: child: write setgroups: $!\n" if (syswrite(FH, $_, length($_)) or 0) != length($_);
+    die "$qqin: fatal: child: close setgroups: $!\n" if !close(FH);
+    die "$qqin: fatal: child: open gid_map: $!\n" if !open(FH, "> /proc/$pid/gid_map");
+    $_ = ($) + 0)." ".($) + 0)." 1\n";
+    die "$qqin: fatal: child: write gid_map: $!\n" if (syswrite(FH, $_, length($_)) or 0) != length($_);
+    die "$qqin: fatal: child: close gid_map: $!\n" if !close(FH);
+    $_ = "B";
+    die "$qqin: fatal: child: write helper: $!\n" if !syswrite(HW, $_, 1);
+    exit(0);
+  }
+  close(HR); close(HW);
+  # CLONE_NEWUSER needs Linux >=3.8 if run as non-root, otherwise EPERM.
+  die "$qqin: fatal: CLONE_NEWUSER: $!\n" if syscall($SYS_unshare, CLONE_NEWUSER);
+  $_ = "A";
+  # Signal the child that it can start writing files in /proc.
+  die "$qqin: fatal: child: write primary: $!\n" if !syswrite(PW, $_, 1);
+  # Wait for the child to finish writing to /proc.
+  die "$qqin: fatal: error in child\n" if !sysread(PR, $_, 1);
+  close(PR); close(PW);
+  my $child_pid2 = waitpid($child_pid, 0);
+  die "$qqin: fatal: bad child_pid2\n" if $child_pid2 != $child_pid;
+  die "$qqin: fatal: error in child: ".sprintf("0x%x")."$?\n" if $?;
+} else {
+  #die "$qqin: fatal: unexpected \$0: $0\n" if $0 ne "...";
+  die "$qqin: fatal: must be run as root\n" if $> != 0;
+  $( = 0;
+  $) = "0 0";  # Also involves an empty setgroups.
+  $< = 0;  # setuid(0).
 }
-die "qqin: fatal: chroot $qqd: $!\n" if !chroot($qqd);
-die "qqin: fatal: cd /: $!\n" if !chdir("/");  # Within $qqd.
+
+if ($do_unshare) {
+  die "$qqin: fatal: SYS_unshare not detected\n" if !defined($SYS_unshare);
+  die "$qqin: fatal: unshare CLONE_NEWNS: $!\n" if
+      syscall($SYS_unshare, CLONE_NEWNS);
+  my @spec = ("none", "/", 0, MS_REC | MS_PRIVATE, 0);
+  die "$qqin: fatal: mount /: $!\n" if syscall($SYS_mount, @spec);
+} else {
+  # We must call this on our root (/) before chroot to take effect.
+  if (defined($SYS_unshare) and !syscall($SYS_unshare, CLONE_NEWNS)) {
+    # Without this call CLONE_NEWS does not take effect when run as root.
+    my @spec = ("none", "/", 0, MS_REC | MS_PRIVATE, 0);
+    syscall($SYS_mount, @spec);
+  }
+}
+
+# Follows symlinks. Good.
+sub is_same_dir($$) {
+  my @stata = stat($_[0]);
+  die "$qqin: fatal: stat $_[0]: $!\n" if !@stata;
+  return 0 if !-d(_);
+  my @statb = stat($_[1]);
+  die "$qqin: fatal: stat $_[1]: $!\n" if !@statb;
+  ($stata[0] == $statb[0]) and ($stata[1] == $statb[1])  # st_dev and st_ino.
+}
+
+if (!-d("$qqd/proc")) {  # TODO(pts): Disallow symlinks in $qqd/proc.
+  mkdir("$qqd/proc", 0755);
+  die "$qqin: fatal: not a directory: $qqd/proc\n" if !-d("$qqd/proc");
+}
+if (-d("$qqd/dev/pts")) {  # TODO(pts): Disallow symlinks.
+  mkdir("$qqd/dev", 0755);
+  mkdir("$qqd/dev/pts", 0755);
+  die "$qqin: fatal: not a directory: $qqd/dev/pts\n" if !-d("$qqd/dev/pts");
+}
+# Non-Linux systems will run mount(8) later.
+if (defined($SYS_mount) and !is_same_dir($qqd, "/")) {
+  my @spec = ("/proc", "$qqd/proc", 0, MS_REC | MS_BIND, 0);
+  die "$qqin: fatal: mount $qqd/proc: $!\n" if syscall($SYS_mount, @spec);
+  @spec = ("/dev/pts", "$qqd/dev/pts", 0, MS_REC | MS_BIND, 0);
+  die "$qqin: fatal: mount $qqd/dev/pts: $!\n" if syscall($SYS_mount, @spec);
+}
+die "$qqin: fatal: chroot $qqd: $!\n" if !chroot($qqd);
+die "$qqin: fatal: cd /: $!\n" if !chdir("/");  # Within $qqd.
 
 # Removes setuid, setgid and sticky bits.
 sub chmod_remove_high_bits($) {
   my $path = $_[0];
   my @stat = stat($path);
-  die "qqin: fatal: stat $path: $!\n" if !@stat;
-  die "qqin: fatal: chmod $path: $!\n" if !chmod($stat[2] & 0777, $path);
+  die "$qqin: fatal: stat $path: $!\n" if !@stat;
+  die "$qqin: fatal: chmod $path: $!\n" if !chmod($stat[2] & 0777, $path);
 }
 
 # Now create $qqd as a symlink to "/", to make filenames work.
 my $link = readlink($qqd);
-if (!$link) {
+if (!defined($link) or $link ne "/") {
   my $qqdu = $qqd;
   $qqdu =~ s@/[^/]\Z(?!\n)@@;
   $link = symlink("/", $qqd);
@@ -349,35 +572,47 @@ if (!$link) {
     while (@qqdl) {
       $qqdu = pop(@qqdl);
       # Owned by root. Good.
-      die "qqin: fatal: mkdir $qqdu: $!\n" if !mkdir($qqdu, 0755);
+      die "$qqin: fatal: mkdir $qqdu: $!\n" if !mkdir($qqdu, 0755);
       if (substr($qqdu, 0, length($home)) eq $home and
           (length($qqdu) == length($home) or
            substr($qqdu, length($home), 1) eq "/")) {
-        die "qqin: fatal: chown $home: $!\n" if
+        die "$qqin: assert: no SUDO_UID\n" if !defined($ENV{SUDO_UID});
+        die "$qqin: fatal: chown $home: $!\n" if
             !chown($ENV{SUDO_UID}, $ENV{SUDO_GID}, $qqdu);
       }
       chmod_remove_high_bits($qqdu) if $qqdu eq $home;
     }
     $link = symlink("/", $qqd);
   }
-  die "qqin: fatal: cannot create symlink: $qqd\n" if !$link;
+  die "$qqin: fatal: cannot create symlink: $qqd\n" if !$link;
 }
-die "qqin: fatal: chdir $pwd: $!\n" if !chdir($pwd);
+if (!chdir($pwd)) {
+  # Some hardened Linux systems return Permission denied if root is trying
+  # to follow a symlink which he does not own. Since lchown(2) is not
+  # available in Perl, we recreate the symlink and retry.
+  if (!$> and [lstat($qqd)]->[4] != 0) {
+    unlink $qqd;
+    die "$qqin: fatal: cannot recreate symlink: $qqd: $!\n" if
+        !symlink("/", $qqd);
+  }
+  die "$qqin: fatal: chdir $pwd: $!\n" if !chdir($pwd);
+}
 
 sub is_mounted($) {
+  return 1 if !-d($_[0]);
   my @stata = lstat("/");
-  die "qqin: fatal: stat /: $!\n" if !@stata;
+  die "$qqin: fatal: stat /: $!\n" if !@stata;
   my @statb = lstat($_[0]);
   return (@statb and $stata[0] != $statb[0]) ? 1 : 0;  # Different st_dev.
 }
 
 if (!is_mounted("/proc")) {
-  die "qqin: fatal: mount /proc failed\n" if
+  die "$qqin: fatal: mount /proc failed\n" if
       system("/bin/mount", "proc", "/proc", "-t", "proc");
 }
 
 if (!is_mounted("/dev/pts")) {
-  die "qqin: fatal: mount /dev/pts failed\n" if
+  die "$qqin: fatal: mount /dev/pts failed\n" if
       system("/bin/mount", "devpts", "/dev/pts", "-t", "devpts");
 }
 
@@ -431,54 +666,26 @@ if (-f("/usr/lib/locale/locale-archive")) {
   delete $ENV{LC_CTYPE};
 }
 
-# Returns true iff entry was already there.
-sub ensure_auth_line($$;$) {
-  my($filename, $line, $is_check) = @_;
-  $line =~ s@\n@@g;
-  $line .= "\n";
-  die "qqin: assert: bad auth line: $line" if $line !~ m@\A([^:\n]+:)@;
-  my $prefix = $1;
-  local *FH;  # my($fh) does not work in Perl 5.004.
-  die "qqin: fatal: open $filename: $!\n" if !open(FH, "+< $filename");
-  my $fl;
-  while (defined($fl = <FH>)) {
-    if (substr($fl, 0, length($prefix)) eq $prefix) {
-      close(FH);
-      return 1;
-    }
-  }
-  if (!$is_check) {
-    die "qqin: fatal: seek: $!\n" if !sysseek(FH, 0, 2);
-    die "qqin: fatal: syswrite: $!\n" if
-        length($line) != (syswrite(FH, $line, length($line)) or 0);
-    die "qqin: fatal: close: $!\n" if !close(FH);
-  }
-  0;
-}
-
 $ENV{HOME} = "/root";
 my $username = "root";
-my @run_as_root = (
-    "su", "sudo", "login", "passwd", "apt-get", "apt", "dpkg", "rpm", "yum", "apk");
 my $is_root = 1;
 my $is_root_cmd = 0;
 if (@ARGV and $ARGV[0] eq "root") {
   $is_root_cmd = 1;
   shift @ARGV;
-} elsif (@ARGV and grep ({ $_ eq $ARGV[0] } @run_as_root)) {
 } else {
-  die "qqin: fatal: incomplete sudo environment: SUDO_UID, SUDO_GID, SUDO_USER\n" if
+  die "$qqin: fatal: incomplete sudo environment: SUDO_UID, SUDO_GID, SUDO_USER\n" if
       !$ENV{SUDO_UID} or !$ENV{SUDO_GID} or !$ENV{SUDO_USER};
   if ($ENV{SUDO_USER} ne "root" and $ENV{SUDO_UID} != 0) {
-    die "qqin: fatal: invalid username: $ENV{SUDO_USER}\n" if
+    die "$qqin: fatal: invalid username: $ENV{SUDO_USER}\n" if
         $ENV{SUDO_USER} !~ m@\A[-+.\w]+\Z(?!\n)@;
     if (!ensure_auth_line("/etc/passwd", "$ENV{SUDO_USER}:", 1)) {
       if (!-f("/etc/shadow")) {
         local *FH;
-        die "qqin: fatal: error creating /etc/shadow: $!\n" if
+        die "$qqin: fatal: error creating /etc/shadow: $!\n" if
             !open(FH, ">> /etc/shadow");
         close(FH);
-        die "qqin: fatal: error chmodding /etc/shadow: $!\n" if
+        die "$qqin: fatal: error chmodding /etc/shadow: $!\n" if
             !chmod(0600, "/etc/shadow");
       }
       ensure_auth_line("/etc/shadow", "$ENV{SUDO_USER}:*:17633:0:99999:7:::\n");
@@ -488,22 +695,29 @@ if (@ARGV and $ARGV[0] eq "root") {
     }
     # TODO(pts): Do we want to add the original $ENV{HOME} as a symlink?
     my $home = "/home/$ENV{SUDO_USER}";
+    # chown below may be insecure for symlinks.
+    die "$qqin: fatal: home is a symlink: $!\n" if -l($home);
     if (!-d($home)) {
       mkdir "/home", 0755;
       mkdir $home, 0755;
-      die "qqin: fatal: could not create HOME: $home\n" if !-d($home);
-      die "qqin: fatal: chown $home: $!\n" if
+      die "$qqin: fatal: could not create HOME: $home\n" if !-d($home);
+      die "$qqin: fatal: chown $home: $!\n" if
           !chown($ENV{SUDO_UID}, $ENV{SUDO_GID}, $home);
       chmod_remove_high_bits($home);
+    } elsif (!is_owned_and_rwx($home, $ENV{SUDO_UID} + 0)) {
+      chown($ENV{SUDO_UID}, $ENV{SUDO_GID}, $home) and
+          chmod(0755, $home);
+      die "$qqin: fatal: HOME not owned by $ENV{SUDO_USER} and rwx: $home\n" if
+          !is_owned_and_rwx($home, $ENV{SUDO_UID} + 0);
     }
     $ENV{HOME} = $home;
     ($(, $)) = ($ENV{SUDO_GID}, "$ENV{SUDO_GID} $ENV{SUDO_GID}");
-    die "qqin: fatal: setgid failed\n" if
+    die "$qqin: fatal: setgid failed\n" if
         $( != $ENV{SUDO_GID} or $) != $ENV{SUDO_GID};
     # Some old versions on Perl (such as the one on Debian Potato) do not
     # support UID > 65535, and they set $< and $> to 0 instead.
     ($<, $>) = ($ENV{SUDO_UID}, $ENV{SUDO_UID});
-    die "qqin: fatal: setuid failed\n" if
+    die "$qqin: fatal: setuid failed\n" if
         $( != $ENV{SUDO_GID} or $) != $ENV{SUDO_GID};
     $is_root = 0;
   }
@@ -547,8 +761,12 @@ if (@ARGV and $ARGV[0] eq "cd" and !$is_root_cmd) {
 #            If it exists, then run @ARGV with bash (properly quote it first).
 
 # exec(...) also prints a detailed error message.
-die "qqin: fatal: exec $ARGV[0]: $!\n" if !exec(@ARGV);
-' __QQD__="$__QQD__" __QQPATH__="$PATH" __QQHOME__="$HOME" __QQLCALL__="$LC_ALL" PWD="$PWD" LC_ALL=C exec sudo -E perl -w -e 'eval $ENV{__QQIN__}; die $@ if $@' "$@"
+die "$qqin: fatal: exec $ARGV[0]: $!\n" if !exec(@ARGV);
+' __QQD__="$__QQD__" __QQPATH__="$PATH" __QQHOME__="$HOME" __QQLCALL__="$LC_ALL" PWD="$PWD" LC_ALL=C exec perl -we'eval$ENV{__QQPRESUDO__};die$@if$@' -- "$@"
+  # TODO(pts): Add more CPU architectures.
+  # TODO(pts): Try nesting use-unshare/use-unshare. Does the MS_PRIVATE mount work on /, and is it effective?
+  # TODO(pts): Try nesting of qq with use-unshare/use-sudo and use-unshare/use-unshare. Give recommendations.
+  # TODO(pts): Download and use staticperl if Perl not installed to the host.
   # TODO(pts): Run __QQIN__ with Perl 5.004 for maximum compatibility.
   # Above setting LC_ALL=C instead of PERL_BADLANG=x, to prevent locale warnings.
 }

@@ -14,7 +14,7 @@ Convenience functionality provided by pts_chroot_env_qq.sh:
   by default.
 * It setuids back to the regular (non-root) user who called it. This way
   you can conveniently (and by default) run commands within a chroot
-  environment as non-root. 
+  environment as non-root.
 * It doesn't run sudo or su within the chroot, so your environment variables
   won't be clobbered.
 * It doesn't run a shell if you specify a command, so your environment
@@ -40,26 +40,35 @@ Convenience functionality provided by pts_chroot_env_qq.sh:
   directories on the $PATH if they are visible from within the chroot
   environment (e.g. /tmp/mychroot/opt/myprogdir will be kept on $PATH,
   /var/myprog2dir will be removed).
-* It hides the /proc and /dev/pts mounts from the host system (using
-  `unshare -m').
-* It automates the creation of chroot environments on i386 Linux systems with
-  Linux distributions Ubuntu, Debian and Alpine.
+* On Linux it hides the /proc and /dev/pts mounts from the host system (using
+  unshare(CLONE_NEWNS), equivalent to `unshare -m').
+* On Linux 3.8 or later it operates in rootless mode (i.e. as the normal
+  user who has invoked it) by default (using unshare(CLONE_NEWUSER)): it
+  doesn't even need sudo to root. (Limitations: sudo to root is needed for
+  the creation of the chroot directory and its contents such as /dev/null, for
+  the first non-root run of qq, and for all runs of qq root.)
+* On Linux it automates the creation of chroot environments with
+  Linux distributions Ubuntu, Debian and Alpine. (For this sudo to root is
+  needed.)
 
 Requirements on the host system:
 
 * A Linux system (or any Unix system which can mount /proc and /dev/pts like
   Linux does it; the mount will be run within the chroot).
-* The sudo command.
-* The chroot command.
+* The sudo command. (If it's already running as root (EUID 0), then sudo is
+  not needed.)
+* The perl command. Any Perl 5 from version 5.004 (released on 1997-10-15)
+  will work.
 * A Bourne shell in /bin/sh: any of Bash, Zsh, Dash and Busybox sh will do.
 
 Requirements in the chroot environment (guest system):
 
 * (If you created the chroot with debootstrap or you are chrooting to a root
-  file system of a Linux installation, you are set, no need to read
+  file system of a Linux installation, you are all set, no need to read
   further.)
-* The /usr/bin/perl command running Perl 5 (5.004 or later).
-* The /sbin/mount command for mounting /proc and /dev/pts.
+* The /sbin/mount command for mounting /proc and /dev/pts. This is not
+  needed on Linux systems, because pts_chroot_env_qq.sh can invoke the
+  mount(2) system call directly.
 * The /sbin/init command (won't be run, just the presence is detected).
 * The /etc/issue file (just the presence is detected).
 * Optionally (recommended), the /bin/bash (preferred) or /bin/sh command.
@@ -76,8 +85,12 @@ Installation:
 
 Usage:
 
-* cd to anywhere within a chroot directory.
-* Use qq as a regular user (non-root). pts_chroot_env_qq.sh runs sudo for you.
+* If you don't have a chroot environment yet, see below how to install one.
+* cd to anywhere within a chroot environment.
+* Use qq as a regular user (non-root). pts_chroot_env_qq.sh runs sudo for you
+  if needed.
+* (You can also use qq as root on the host system, but it's not recommended.
+  Use qq root (see below) if you need root access in the chroot environment.)
 * Run qq to enter an interactive shell there. (You will have to type your
   password, because pts_chroot_env_qq.sh uses sudo.)
 * Alternatively, run qq root to get an interactive root shell there.
@@ -92,6 +105,12 @@ Usage:
   files even is a regular (non-root) user between the chroot and the host.
 * To install packages to a Debian or Ubuntu chroot, first run
   `qq apt-get update', then run `qq apt-get install PACKAGENAME'.
+* To force rootless mode, run qq use-rootless [...].
+* To force sudo for the initial setup (rather than rooless mode), run qq
+  use-sudo [...].
+
+How to create a chroot environment:
+
 * To install an initial chroot environment on Linux i386 or amd64 systems
   for Linux distributions Ubuntu and Debian
   using pts-debootstrap (https://github.com/pts/pts-debootstrap/), run
@@ -103,13 +122,45 @@ Usage:
     GNU bash, version 4.4.12(1)-release (x86_64-pc-linux-gnu)
     $ qq bash --version | head -1  # Feisty in chroot.
     GNU bash, version 3.2.13(1)-release (i486-pc-linux-gnu)
-* To install an initial i386 chroot environment on Linux i386 or amd64 systems
+
+* To install an initial chroot environment on Linux
   for Linux distribution Alpine, run `qq get-alpine VERSION TARGETDIR', e.g.
 
     $ qq get-alpine latest-stable alpine_dir
     $ cd alpine_dir
     $ qq busybox | head
     BusyBox v1.28.4 (2018-12-06 15:13:21 UTC) multi-call binary.
+
+  Please note that the default `--arch i386' is used. To use a different
+  architecture, specigy `--arch ARCH'.
+
+* To install an initial chroot environment based on a Docker image, install
+  Docker first, and then run something like:
+
+    $ mkdir busybox_dir &&
+      docker create --name busybox_export busybox >/dev/null &&
+      mkdir busybox_dir/etc && touch busybox_dir/etc/qqsystem &&
+      docker export busybox_export | (cd busybox_dir && sudo tar x) &&
+      docker rm busybox_export >/dev/null
+
+  Use the chroot environment normally:
+
+    $ cd busybox_dir/tmp
+    $ qq
+    [qq=busybox_dir] USER@HOST:/tmp$ exit
+
+  Recommended small Docker images: busybox, alpine, minideb,
+  minideb:stretch, minideb:jessie, minideb:wheezy.
+
+  More info about minideb (small Debian-based Docker image for amd64
+  architecture):
+
+  * https://github.com/bitnami/minideb
+  * https://hub.docker.com/r/bitnami/minideb/tags/
+
+* You can use any other method you already know to create the chroot
+  environment. If it doesn't have /sbin/init and /etc/issue, then create a
+  file named /etc/qqsystem there.
 
 Compatibility with old Linux systems:
 
