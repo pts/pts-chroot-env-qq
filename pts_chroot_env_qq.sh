@@ -228,8 +228,23 @@ sub detect_unshare() {
   # interpreter binary. Doing require POSIX; die((POSIX::uname())[4])
   # would not work, because it would return x86_64 for an i386 process running
   # on an amd64 kernel.
+  my $perl_prog = $^X;
+  if ($perl_prog !~ m@/@) {
+    # Perl 5.004 does not have a path to "perl" in $^X, it just has "perl".
+    # We look it up on $ENV{PATH}.
+    my $perl_filename = $perl_prog;
+    $perl_prog = undef;
+    for my $dir (split(/:+/, $ENV{PATH})) {
+      next if !length($dir);
+      $perl_prog = "$dir/$perl_filename";
+      last if -e $perl_prog;
+      $perl_prog = undef;
+    }
+    return "Perl interpreter not found on \$ENV{PATH}: $perl_filename" if
+        !defined($perl_prog);
+  }
   local *FH;
-  return ("open $^X: $!", undef, undef) if !open(FH, "< $^X");
+  return ("open $^X: $!", undef, undef) if !open(FH, "< $perl_prog");
   my $got = sysread(FH, $_, 52);
   return ("read $^X: $!", undef, undef) if ($got or 0) < 52;
   return ("close $^X: $!", undef, undef) if !close(FH);
