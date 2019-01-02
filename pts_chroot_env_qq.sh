@@ -56,7 +56,9 @@ __qq_pts_debootstrap__() {
     echo "qq: fatal: error extracting pts-debootstrap-latest.sfz.7z" >&2
     return 104
   fi
-  sudo "$DIR.pts-debootstrap/pts-debootstrap/pts-debootstrap" "$@"
+  local SUDO=sudo
+  test "$EUID" = 0 && SUDO=
+  $SUDO "$DIR.pts-debootstrap/pts-debootstrap/pts-debootstrap" "$@"
   local STATUS="$?"
   rm -rf "$DIR.pts-debootstrap"
   return "$?"
@@ -85,9 +87,12 @@ __qq_get_alpine__() {
   local VERSION="$1"
   local DIR="$2"
 
+  local SUDO=sudo
+  test "$EUID" = 0 && SUDO=
+
   if test "$VERSION" = dir; then
     if ! (cd "$DIR" 2>/dev/null); then
-      if ! sudo chown "$(id -u)" "$DIR"; then
+      if ! $SUDO chown "$(id -u)" "$DIR"; then
         echo "qq: fatal: chown failed in: $DIR" >&2
         return 112
       fi
@@ -106,7 +111,7 @@ __qq_get_alpine__() {
     return 100
   fi
   rm  -rf "$DIR.get" 2>/dev/null
-  test -d "$DIR.get" && sudo rm -rf "$DIR.get"
+  test -d "$DIR.get" && $SUDO rm -rf "$DIR.get"
   mkdir -p "$DIR.get/alpine.dir"
   if test "${VERSION#*.*.*}" != "$VERSION"; then
     VERSION="${VERSION#v}"
@@ -140,24 +145,17 @@ __qq_get_alpine__() {
     return 103
   fi
   if ! (cd "$DIR.get" &&
-        (cd alpine.dir && sudo tar xzf ../alpine.tar.gz) &&
-        sudo chmod 755 alpine.dir &&
-        sudo mv alpine.dir/* ./ &&
-        sudo rmdir alpine.dir &&
+        (cd alpine.dir && $SUDO tar xzf ../alpine.tar.gz) &&
+        $SUDO chmod 755 alpine.dir &&
+        $SUDO mv alpine.dir/* ./ &&
+        $SUDO rmdir alpine.dir &&
         rm -f alpine.tar.gz alpine.html); then
     echo "qq: fatal: error extracting $DIR.get/alpine.tar.gz" >&2
     rm  -rf "$DIR.get" 2>/dev/null
-    test -d "$DIR.get" && sudo rm -rf "$DIR.get"
+    test -d "$DIR.get" && $SUDO rm -rf "$DIR.get"
     return 104
   fi
   # TODO(pts): Use staticperl instead, it uses much less disk.
-  if ! (sudo chroot "$DIR.get" /usr/bin/env -i /sbin/apk --update fix perl &&
-        sudo chroot "$DIR.get" /usr/bin/env -i /sbin/apk add perl); then
-    echo "qq: fatal: error installing Perl to Alpine Linux" >&2
-    rm  -rf "$DIR.get" 2>/dev/null
-    test -d "$DIR.get" && sudo rm -rf "$DIR.get"
-    return 105
-  fi
   if ! mv "$DIR".get "$DIR"; then
     echo "qq: fatal: rename failed from: $DIR.get" >&2
     exit 105
