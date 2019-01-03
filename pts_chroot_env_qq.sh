@@ -76,7 +76,7 @@ __qq_pts_debootstrap__() {
 }
 
 __qq_get_alpine__() {
-  local ARCH=i386
+  local ARCH=
   if test "$1" == --arch && test $# -gt 1; then
     ARCH="$2"
     shift; shift
@@ -88,11 +88,19 @@ __qq_get_alpine__() {
     echo "Architectures (<arch>): i386 (x86), amd64 (x86_64), s390x, ppc64le, armhf, aarch64." >&2
     return 1
   fi
+  if test -z "$ARCH"; then
+    ARCH="$(uname -m)"
+    case "$ARCH" in amd64 | x86_64 | x64) ARCH=i386; esac  # 32-bit default.
+  fi
   case "$ARCH" in
    i[3456]86 | x86) ARCH=x86 ;;
    amd64 | x86_64 | x64) ARCH=x86_64 ;;
    ppc64el | ppc64le) ARCH=ppc64le ;;
   esac
+  if test -z "$ARCH"; then
+    echo "qq: fatal: bad architecture" >&2
+    return 108
+  fi
 
   # Works with version 3.5, 3.6, 3.7 and 3.8.
   local VERSION="$1"
@@ -182,11 +190,19 @@ __qq_get_alpine__() {
 __qq_get_cloud_image__() {
   local URL="$1" ARCH="$2" DISTRO="$3" DIR="$4"
 
+  if test -z "$ARCH"; then
+    ARCH="$(uname -m)"
+    case "$ARCH" in amd64 | x86_64 | x64) ARCH=i386; esac  # 32-bit default.
+  fi
   case "$ARCH" in
    i[3456]86 | x86) ARCH=i386 ;;
    amd64 | x86_64 | x64) ARCH=amd64 ;;
    ppc64el | ppc64le) ARCH=ppc64el ;;
   esac
+  if test -z "$ARCH"; then
+    echo "qq: fatal: bad architecture" >&2
+    return 108
+  fi
 
   local SUDO=sudo
   test "$EUID" = 0 && SUDO=
@@ -415,7 +431,7 @@ __qq_get_cloud_image__() {
 
 # Download from http://images.linuxcontainers.org/
 __qq_get_lxc__() {
-  local ARCH=i386
+  local ARCH=
   if test "$1" == --arch && test $# -gt 1; then
     ARCH="$2"
     shift; shift
@@ -433,7 +449,7 @@ __qq_get_lxc__() {
 
 # Download from http://cloud-images.ubuntu.com/
 __qq_get_ubuntu__() {
-  local ARCH=i386
+  local ARCH=
   if test "$1" == --arch && test $# -gt 1; then
     ARCH="$2"
     shift; shift
