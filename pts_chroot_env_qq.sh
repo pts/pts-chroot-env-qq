@@ -214,7 +214,7 @@ __qq_get_cloud_image__() {
     return 101
   fi
 
-  URL="$(BASE_URL="$BASE_URL" ARCH="$ARCH" DISTRO="$DISTRO" exec perl -w -e '
+  local TYPE_AND_URL="$(BASE_URL="$BASE_URL" ARCH="$ARCH" DISTRO="$DISTRO" exec perl -w -e '
     BEGIN { $^W = 1 }
     use strict;
     use integer;
@@ -236,6 +236,7 @@ __qq_get_cloud_image__() {
     my %all_distros;
     my $match_distro = $ENV{DISTRO};
     my $last_url;
+    my $last_type;
     BEGIN { $^W = 0 }  # No warnings about undefined values.
     for (values(%{$_->{products}})) {
       $all_archs{$_->{arch}} = 1;
@@ -253,43 +254,62 @@ __qq_get_cloud_image__() {
       # Typical: version: "20181227_04:59", "20171031".
       for my $version (sort keys(%{$_->{versions}})) {
         my $item_dict = $_->{versions}{$version}{items};
-        my $url;
+        my ($type, $url);
         if ($item_dict->{"root.tar.xz"}{path}) {  # TODO(pts): Save type.
           $url = $item_dict->{"root.tar.xz"}{path};  # TODO(pts): Prefer .tar.xz if available and xz is not $PATH.
+          $type = "root.tar.xz";
         } elsif ($item_dict->{"root.tar.gz"}{path}) {  # Do not look at "tar.gz", it contains a filesystem image (.img).
           $url = $item_dict->{"root.tar.gz"}{path};
+          $type = "root.tar.gz";
         } elsif ($item_dict->{"root.squashfs"}{path}) {
+          # Example: qq get-ubuntu zesty zesty_dir
           $url = $item_dict->{"root.squashfs"}{path};
+          $type = "root.squashfs";
         } elsif ($item_dict->{"squashfs"}{path}) {
           $url = $item_dict->{"squashfs"}{path};
+          $type = "root.squashfs";
+        } elsif ($item_dict->{"tar.gz"}{path}) {
+          # Example: qq get-ubuntu lucid lucid_dir
+          # http://cloud-images.ubuntu.com/releases/server/releases/lucid/release-20150427/ubuntu-10.04-server-cloudimg-i386.tar.gz
+          # ubuntu-10.04-server-cloudimg-i386.tar.gz contains:
+          # -rw-r--r-- 1 root root       3657 Apr 27  2015 README.files
+          # -rw-r--r-- 1 root root      91708 Apr 27  2015 lucid-server-cloudimg-i386-loader
+          # -rw-r--r-- 1 root root    4215040 Apr 27  2015 lucid-server-cloudimg-i386-vmlinuz-virtual
+          # -rw-r--r-- 1 root root 1476395008 Apr 27  2015 lucid-server-cloudimg-i386.img
+          # The file lucid-server-cloudimg-i386.img is a 1.4 GiB ext3
+          # filesystem image, we would need so much temporary disk space.
+          $url = $item_dict->{"tar.gz"}{path};
+          $type = "img.tar.gz";
         }
         if (defined($url)) {
           $url =~ s@\A/+@@;
           # Example $url: server/releases/zesty/release-20171121/ubuntu-17.04-server-cloudimg-armhf.tar.gz -> http://cloud-images.ubuntu.com/releases/server/releases/zesty/release-20171121/ubuntu-17.04-server-cloudimg-armhf.tar.gz
           $url = "$ENV{BASE_URL}$url" if $url !~ m@://@;
           #die $url;
-          $last_url = $url;  # Corresponding to the largest $version.
+          ($last_type, $last_url) = ($type, $url);  # Corresponding to the largest $version.
         }
       }
     }
     die "qq: fatal: root image of requested <distro>=$match_distro --arch=$ENV{ARCH} not found\n" .
         "qq: fatal: available <distro> values: @{[sort keys %all_distros]}\n" .
         "qq: fatal: --arch values: @{[sort keys %all_archs]}\n" if !defined($last_url);
-    print $last_url
+    print "$last_type:$last_url"
   ' <"$DIR.get/images.json")"
-  if test -z "$URL"; then
+  local TYPE="${TYPE_AND_URL%%:*}"
+  URL="${TYPE_AND_URL#*:}"
+  if test -z "$TYPE_AND_URL" || test "$TYPE" = "$TYPE_AND_URL"; then
     rm -rf "$DIR.get"
     return 102
   fi
   rm -f "$DIR.get/images.json"
 
   echo "qq: info: downloading root filesystem: $URL" >&2
-  if test "${URL%.tar.gz}" != "$URL"; then
+  if test "$TYPE" = root.tar.gz; then
     # TODO(pts): Detect partial downloads.
     (wget -nv -O- "$URL" && : >"$DIR.get/download.ok") | (cd "$DIR.get/rootfs.dir" && $SUDO tar --numeric-owner -xz && : >"../extract.ok")
-  elif test "${URL%.tar.xz}" != "$URL"; then
+  elif test "$TYPE" = root.tar.xz; then
     (wget -nv -O- "$URL" && : >"$DIR.get/download.ok") | (cd "$DIR.get/rootfs.dir" && $SUDO tar --numeric-owner -xJ && : >"../extract.ok")
-  elif test "${URL%.squashfs}" != "$URL"; then
+  elif test "$TYPE" = root.squashfs; then
     if wget -nv -O "$DIR.get/rootfs.squashfs" "$URL"; then
       # We need to support .squashfs, because .tar.gz and .tar.xz are missing for:
       # qq get-ubuntu zesty zesty_dir  # http://cloud-images.ubuntu.com/releases/server/releases/zesty/release-20171208/ubuntu-17.04-server-cloudimg-i386.squashfs
@@ -304,20 +324,71 @@ __qq_get_cloud_image__() {
       else
         if (cd "$DIR.get" &&
             mkdir rootfs.sqm &&
-            $SUDO mount -t squashfs -o loop,ro rootfs.squashfs rootfs.sqm &&
+            $SUDO mount -t squashfs -o loop,ro,nodev,nosuid,noatime rootfs.squashfs rootfs.sqm &&
             # Better preserves hard links than `cp -a'.
             (cd rootfs.sqm && $SUDO tar --numeric-owner -c . && : >../download.ok) | (cd rootfs.dir && $SUDO tar --numeric-owner -x && : >../extract.ok) &&
             $SUDO umount rootfs.sqm &&
             rmdir rootfs.sqm); then
           : >"$DIR.get/extract.ok"
         else
-          echo "qq: fatal: kernel extraction of squashfs failed" >&2
-          test -e "$DIR.get/rootfs.sqm" && $SUDO umount "$DIR.get/rootfs.sqm"
+          echo "qq: fatal: by-kernel extraction of squashfs failed" >&2
+          test -e "$DIR.get/rootfs.sqm" && $SUDO umount "$DIR.get/rootfs.sqm" 2>/dev/null
+          test -d "$DIR.get/rootfs.sqm" && rmdir rootfs.sqm
+        fi
+      fi
+    fi
+  elif test "$TYPE" = img.tar.gz; then
+    # This is a bit tricy because we want to kill wget and tar (with SIGPIPE
+    # by default) as soon as tar prints a filename ending with .img. Regular
+    # shell pipelines don't give us this, so we implement it with Perl.
+    local IMG_FILENAME="$(cd "$DIR.get" && URL="$URL" exec perl -we '
+        $SIG{PIPE} = "DEFAULT";
+        die "qq fatal: open tar.out: $!\n" if !open(TARO, "> tar.out");
+        close(TARO);
+        die "qq: fatal: open wget: $!\n" if !open(WGET, "exec wget -qO- \"\$URL\"|");
+        die "qq: fatal: open tar: $!\n" if !open(TART, "|exec tar --numeric-owner -tz >tar.out 2>/dev/null");
+        sub maybe_finish() {
+          if (-s("tar.out")) {
+            die if !open(TARO, "< tar.out");
+            for (<TARO>) {
+              print($_),exit() if m@[.]img$@;
+            }
+            close(TARO);
+          }
+        }
+        while (sysread(WGET, $_, 65536) > 0) {
+          die "qq: fatal: syswrite to tar: $!\n" if syswrite(TART, $_, length($_)) != length($_);
+          maybe_finish();
+        }
+        close(TART);
+        maybe_finish()')"
+    rm -f "$DIR.get/tar.out"
+    if test -z "$IMG_FILENAME"; then
+      echo "qq: fatal: .img file not found in: ${URL##*/}" >&2
+    else
+      echo "qq: info: downloading root filesystem image $IMG_FILENAME from: $URL" >&2
+      (wget -nv -O- "$URL" && : >"$DIR.get/download.ok") | ($SUDO tar --numeric-owner -xzO "$IMAGE_FILENAME" >"$DIR.get/rootfs.img" && : >"$DIR.get/tar_extract.ok")
+      if ! (test -f "$DIR.get/download.ok" && test -f "$DIR.get/tar_extract.ok"); then
+        echo "qq: fatal: root filesystem image extraction failed: $IMG_FILENAME" >&2
+      else
+        if (cd "$DIR.get" &&
+            mkdir rootfs.mounted &&
+            # Typically an ext3 filesystem.
+            $SUDO mount -o loop,ro,nodev,nosuid,noatime rootfs.img rootfs.mounted &&
+            # Better preserves hard links than `cp -a'.
+            (cd rootfs.mounted && $SUDO tar --numeric-owner -c . && : >../download.ok) | (cd rootfs.dir && $SUDO tar --numeric-owner -x && : >../extract.ok) &&
+            $SUDO umount rootfs.mounted &&
+            rmdir rootfs.mounted); then
+          : >"$DIR.get/extract.ok"
+        else
+          echo "qq: fatal: by-kernel extraction of rootfs.img failed" >&2
+          test -e "$DIR.get/rootfs.mounted" && $SUDO umount "$DIR.get/rootfs.mounted" 2>/dev/null
+          test -d "$DIR.get/rootfs.mounted" && rmdir rootfs.mounted
         fi
       fi
     fi
   else
-    echo "qq: fatal: unknown type for file: ${URL##*/}"
+    echo "qq: fatal: unknown type $TYPE for file: ${URL##*/}" >&2
   fi
   if ! (test -f "$DIR.get/download.ok" && test -f "$DIR.get/extract.ok"); then
     echo "qq: fatal: error downloading root filesystem: $URL" >&2
@@ -326,7 +397,7 @@ __qq_get_cloud_image__() {
     test -d "$DIR.get" && $SUDO rm -rf "$DIR.get"
     return 103
   fi
-  rm -f "$DIR.get/download.ok" "$DIR.get/extract.ok" "$DIR.get/rootfs.squashfs"
+  rm -f "$DIR.get/download.ok" "$DIR.get/extract.ok" "$DIR.get/tar_extract.ok" "$DIR.get/rootfs.squashfs" "$DIR.get/rootfs.img"
   if ! ( cd "$DIR.get" &&
          $SUDO chmod 755 rootfs.dir &&
          $SUDO mv rootfs.dir/* ./ &&

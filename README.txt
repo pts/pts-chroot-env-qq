@@ -144,12 +144,10 @@ How to create a chroot environment:
 * To install an initial chroot environment for a recent version of the
   Linux distribution Ubuntu using their cloud image repository, run
   `qq get-ubuntu DISTRO TARGETDIR', e.g. `qq get-ubuntu bionic bionic_dir'
-  or `qq get-ubuntu zesty zesty_dir'. The oldest available Ubuntu is 10.04
-  (lucid), but it doesn't contain a root filesystem image; to oldest which
-  actually works is Ubuntu 12.04 (precise), run ``qq get-ubuntu precise
-  precise_dir' to get it.
+  or `qq get-ubuntu zesty zesty_dir'. The oldest available Ubuntu from there
+  is 10.04 (lucid), run `qq get-ubuntu lucid lucid_dir' to get it.
 
-  To get a full list of Ubuntu releases available, run
+  To get a full list of Ubuntu releases available from there, run
   `qq get-ubuntu . get_dir'.
 
 * To install an initial chroot environment for a recent version of a
@@ -157,7 +155,7 @@ How to create a chroot environment:
   `qq get-lxc DISTRO TARGETDIR', e.g. `qq get-lxc centos/6 centos_dir'.
   Alpine Linux is also available from this repository.
 
-  To get a full list of Linux distributions available, run
+  To get a full list of Linux distributions available from there, run
   `qq get-lxc . get_dir'.
 
   On 2019-01-02, the repository contained the following Linux distributions:
