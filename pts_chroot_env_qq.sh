@@ -14,7 +14,7 @@ __qq_init__() {
 }
 
 __qq_pts_debootstrap__() {
-  if test -z "$1" || test "$1" == --help || test $# -lt 2; then
+  if test -z "$1" || test "$1" = --help || test $# -lt 2; then
     echo "Usage:   $0 pts-debootstrap [<flag>...] <debian-distro-name> <target-dir>" >&2
     echo "Example: $0 pts-debootstrap feisty feisty_dir"
     echo "Example: $0 pts-debootstrap --arch amd64 stretch stretch_dir"
@@ -77,11 +77,11 @@ __qq_pts_debootstrap__() {
 
 __qq_get_alpine__() {
   local ARCH=
-  if test "$1" == --arch && test $# -gt 1; then
+  if test "$1" = --arch && test $# -gt 1; then
     ARCH="$2"
     shift; shift
   fi
-  if test -z "$1" || test "$1" == --help || test $# != 2; then
+  if test -z "$1" || test "$1" = --help || test $# != 2; then
     echo "Usage:   $0 get-alpine [--arch=<arch>] {<version>|dir} <target-dir>" >&2
     echo "Example: $0 get-alpine latest-stable alpine_dir" >&2
     echo "Example: $0 get-alpine 3.8 alpine38_dir" >&2
@@ -432,11 +432,11 @@ __qq_get_cloud_image__() {
 # Download from http://images.linuxcontainers.org/
 __qq_get_lxc__() {
   local ARCH=
-  if test "$1" == --arch && test $# -gt 1; then
+  if test "$1" = --arch && test $# -gt 1; then
     ARCH="$2"
     shift; shift
   fi
-  if test -z "$1" || test "$1" == --help || test $# != 2; then
+  if test -z "$1" || test "$1" = --help || test $# != 2; then
     echo "Usage:   $0 get-lxc [--arch=<arch>] <distro> <target-dir>" >&2
     echo "Example: $0 get-lxc centos/6 centos6_dir" >&2
     echo "Architectures (<arch>): i386 (x86), amd64 (x86_64), s390x, ppc64el, armhf, aarch64." >&2
@@ -450,11 +450,11 @@ __qq_get_lxc__() {
 # Download from http://cloud-images.ubuntu.com/
 __qq_get_ubuntu__() {
   local ARCH=
-  if test "$1" == --arch && test $# -gt 1; then
+  if test "$1" = --arch && test $# -gt 1; then
     ARCH="$2"
     shift; shift
   fi
-  if test -z "$1" || test "$1" == --help || test $# != 2; then
+  if test -z "$1" || test "$1" = --help || test $# != 2; then
     echo "Usage:   $0 get-ubuntu [--arch=<arch>] <distro> <target-dir>" >&2
     echo "Example: $0 get-ubuntu bionic bionic_dir" >&2
     echo "Architectures (<arch>): i386 (x86), amd64 (x86_64), s390x, ppc64el, armhf, aarch64." >&2
@@ -466,7 +466,7 @@ __qq_get_ubuntu__() {
 
 # Download from Docker Hub (https://hub.docker.com/).
 __qq_get_docker__() {
-  if test -z "$1" || test "$1" == --help || test $# != 2; then
+  if test -z "$1" || test "$1" = --help || test $# != 2; then
     echo "Usage:   $0 get-docker <image> <target-dir>" >&2
     echo "Example: $0 get-docker busybox busybox_dir" >&2
     echo "Example: $0 get-docker alpine alpine_dir" >&2
