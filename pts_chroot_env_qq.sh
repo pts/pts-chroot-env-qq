@@ -1037,6 +1037,7 @@ if (@ARGV and $ARGV[0] eq "root") {
 } else {
   die "$qqin: fatal: incomplete sudo environment: SUDO_UID, SUDO_GID, SUDO_USER\n" if
       !$ENV{SUDO_UID} or !$ENV{SUDO_GID} or !$ENV{SUDO_USER};
+  $username = $ENV{SUDO_USER};
   if ($ENV{SUDO_USER} ne "root" and $ENV{SUDO_UID} != 0) {
     die "$qqin: fatal: invalid username: $ENV{SUDO_USER}\n" if
         $ENV{SUDO_USER} !~ m@\A[-+.\w]+\Z(?!\n)@;
