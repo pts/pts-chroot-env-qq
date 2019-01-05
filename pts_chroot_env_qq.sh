@@ -1073,8 +1073,18 @@ $ENV{PS1} = q~\u@\h:\w\$ ~ if !defined($ENV{PS1}) or
     $ENV{PS1} =~ m@%@;  # zsh prompt.
 my $qqdlast = $qqd;
 $qqdlast =~ s@\A.*/@@s;
-$ENV{PS1} = "[qq=$qqdlast] $ENV{PS1}";
 $ENV{SHELL} = -f("/bin/bash") ? "/bin/bash" : "/bin/sh";
+my $shell_link =
+    (@ARGV and ($ARGV[0] eq "dash" or $ARGV[0] eq "/bin/dash")) ? "dash" :
+    readlink((@ARGV and $ARGV[0] eq "sh") ? "/bin/sh" : $ENV{SHELL});
+if (defined($shell_link) and
+    ($shell_link eq "dash" or $shell_link eq "/bin/dash")) {
+  # dash does not expand $ENV{PS1};
+  $ENV{PS1} = "[qq=$qqdlast] \$ ";
+} else {
+  # OK for bash, bash-as-sh, busybox sh.
+  $ENV{PS1} = "[qq=$qqdlast] $ENV{PS1}";
+}
 
 # X11, Gnome
 delete @ENV{qw(
@@ -1205,6 +1215,7 @@ if ($username eq "root") {
       $( != $ENV{SUDO_GID} or $) != $ENV{SUDO_GID};
 }
 delete @ENV{"SUDO_GID", "SUDO_UID"};
+
 push @ARGV, ($ENV{SHELL} eq "/bin/bash") ?
     ("/bin/bash", "--norc") : ("/bin/sh") if !@ARGV;
 
