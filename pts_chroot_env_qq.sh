@@ -818,6 +818,7 @@ if ($ENV{__QQLCALL__}) {
 delete @ENV{"__QQD__", "__QQPATH__", "__QQHOME__", "__QQLCALL__", "__QQIN__", "__QQPRESUDO__", "__QQUNSHARE__"};
 # We must call this before chroot(...), for the correct $^X value.
 my ($syscall_error, $SYS_mount, $SYS_unshare, $SYS_pivot_root, $SYS_fchdir, $SYS_umount2) = detect_linux_syscalls();
+umask(0022);
 
 if ($do_unshare) {
   # $ENV{SUDO_USER}, $ENV{SUDO_UID} and $ENV{SUDO_GID} is already set up by qqpresudo.
