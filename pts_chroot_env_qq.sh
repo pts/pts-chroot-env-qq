@@ -1112,6 +1112,39 @@ if (-f("/usr/lib/locale/locale-archive")) {
   delete $ENV{LC_CTYPE};
 }
 
+# If $SUDO_UID is 1000, and /etc/passwd already contains
+# "ubuntu:x:1000:1000:Ubuntu,,,:/home/ubuntu:/bin/bash", remove it.
+# Also remove "ubuntu:x:1000:" from /etc/group.
+sub comment_out_wrong_username($$$) {
+  my($filename, $good_username, $id) = @_;
+  local *FH;
+  return if !open(FH, "< $filename");
+  my $fl;
+  my $is_found = 0;
+  while (defined($fl = <FH>)) {
+    my @fx = split(/:/, $fl);
+    if (@fx > 2 and $fx[2] eq $id and $fx[0] ne $username) {
+      $is_found = 1; last
+    }
+  }
+  close(FH);
+  return if !$is_found;
+  die "$qqin: fatal: open read-write $filename: $!\n" if
+      !open(FH, "+< $filename");
+  my $data = "";
+  while (defined($fl = <FH>)) {
+    my @fx = split(/:/, $fl);
+    # Add a comment marker to the beginning of the line.
+    $data .= "#" if @fx > 2 and $fx[2] eq $id and $fx[0] ne $username;
+    $data .= $fl;
+  }
+  die "$qqin: fatal: fseek in $filename: $!\n" if !seek(FH, 0, 0);
+  die "$qqin: fatal: rewrite $filename: $!\n" if !print(FH $data);
+  die "$qqin: fatal: rewrite-flush $filename: $!\n" if !close(FH);
+  die "$qqin: fatal: truncate $filename: $!\n" if
+      !truncate($filename, length($data));
+}
+
 if (!-f("/etc/passwd")) {
   mkdir("/etc", 0755);
   local *FH;
@@ -1134,6 +1167,8 @@ if (!-f("/etc/group")) {
   close(FH);
 }
 if (!ensure_auth_line("/etc/passwd", "$username:", 1)) {
+  comment_out_wrong_username("/etc/passwd", $username, $ENV{SUDO_UID});
+  comment_out_wrong_username("/etc/group", $username, $ENV{SUDO_GID});
   ensure_auth_line("/etc/shadow", "$username:*:17633:0:99999:7:::\n");
   ensure_auth_line("/etc/group",  "$username:x:$ENV{SUDO_GID}:\n");
   # Do it last, in case of errors with the above.
