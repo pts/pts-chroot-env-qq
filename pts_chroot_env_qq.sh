@@ -715,6 +715,7 @@ sub try_unshare() {
         $unshare_error = "cannot detect username";
       } elsif (!stat("$qqd/proc") or !-d(_)) {
         # TODO(pts): Do not follow local symlinks above and elsewhere.
+        #            Maybe use code like this: https://github.com/opencontainers/runc vendor/github.com/cyphar/filepath-securejoin/join.go
         $unshare_error = "not a directory: $qqd/proc";
       } elsif (!stat("$qqd/dev/pts") or !-d(_)) {
         # TODO(pts): Do not follow local symlinks above and elsewhere.
