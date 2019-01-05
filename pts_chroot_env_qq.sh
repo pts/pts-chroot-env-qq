@@ -931,7 +931,61 @@ die "$qqin: fatal: invalid username: $username\n" if
 $ENV{LOGNAME} = $ENV{USER} = $ENV{USERNAME} = $username;
 delete @ENV{qw(SUDO_COMMAND SUDO_USER)};
 
-die "$qqin: fatal: chroot $qqd: $!\n" if !chroot($qqd);
+if (defined($SYS_pivot_root) and $username eq "root") {
+  # On Linux we use pivot_root(2) (and some other mount(2) and fchdir(2)
+  # magic, see below) instead of chroot(2) to prevent the chdir("..") escape
+  # technique (http://www.ouah.org/chroot-break.html), which would work as
+  # root with chroot(2).
+  #
+  # This implementation with pivot_root(2) is based on
+  # https://github.com/opencontainers/runc/blob/4769cdf607b0d1cbd73e5407d9655da7511fe193/libcontainer/rootfs_linux.go#L693
+  # with the re-bind-bound below prepended. It also contains msMoveRoot
+  # (MS_MOVE), but that works only if $qqd is a mount mount, and the
+  # re-bind-mount rick below doesn not fix it.
+  #
+  # There is another implementation at
+  # https://github.com/vincentbernat/jchroot/blob/3ad09cca4879c27f7eef657b7fa1dd8b4f6aa47b/jchroot.c#L122
+  # , but that one creates a temporary directory within $qqd.
+  #
+  # https://github.com/opencontainers/runc/blob/master/libcontainer/SPEC.md
+  # claims that pivot_root(2) is not supported in ramfs. It does work within
+  # tmpfs though on Linux 3.13.
+  local(*OLDROOT, *NEWROOT);
+  # Without this bind-mount call, pivot_root would fail if $qqd was not a
+  # mount point.
+  # Without the MS_REC below, filesystems mounted within $qqd would not be
+  # visible.
+  my @spec = ($qqd, $qqd, 0, MS_REC | MS_BIND, 0);
+  die "$qqin: fatal: re-bind-mount $qqd: $!\n" if syscall($SYS_mount, @spec);
+  die "$qqin: fatal: chdir $qqd: $!\n" if !chdir($qqd);
+  die "$qqin: fatal: open oldroot: $!\n" if
+      !sysopen(OLDROOT, "/", O_RDONLY | O_DIRECTORY, 0);
+  die "$qqin: fatal: open newroot: $!\n" if
+      !sysopen(NEWROOT, $qqd, O_RDONLY | O_DIRECTORY, 0);
+  # Not using chdir(NEWROOT), because it old versions of Perl (e.g.
+  # 5.004_04) do not have it.
+  die "$qqin: fatal: fchdir newroot: $!\n" if
+      0 != syscall($SYS_fchdir, fileno(NEWROOT));
+  die "$qqin: fatal: pivot_root . .: $!\n" if
+      0 != syscall($SYS_pivot_root, @spec);
+  die "$qqin: fatal: fchdir oldroot: $!\n" if
+      0 != syscall($SYS_fchdir, fileno(OLDROOT));
+  @spec = ("", ".", "", MS_REC | MS_SLAVE, 0);
+  die "$qqin: fatal: mount . MS_REC: $!\n" if syscall($SYS_mount, @spec);
+  @spec = (".", MNT_DETACH);
+  die "$qqin: fatal: umount . MNT_DETACH: $!\n" if syscall($SYS_umount2, @spec);
+  close(NEWROOT); close(OLDROOT);
+} else {
+  # For a non-root user chroot is secure enough. For root on non-Linux
+  # systems the chdir("..") chroot escape technique
+  # (http://www.ouah.org/chroot-break.html) can be used to break out, and we
+  # don not have any protection against that here.
+  #
+  # On Linux 3.13 /proc/mounts remains very long in here (containing the
+  # mounts of the host system). We cannot fix it. Linux 4.18 removes most of
+  # those entries from mount.
+  die "$qqin: fatal: chroot $qqd: $!\n" if !chroot($qqd);
+}
 die "$qqin: fatal: cd /: $!\n" if !chdir("/");  # Within $qqd.
 #die if !opendir(D, "/"); die "qqd contents: (@{[readdir(D)]}).\n";
 # TODO(pts): Close all file descriptors (/proc/self/fd) except for 0, 1 and 2?

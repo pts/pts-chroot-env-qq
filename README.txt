@@ -263,6 +263,38 @@ Compatibility with old Linux systems:
   `qq pts-debootstrap feisty feisty_dir' also works, and `qq apt-get install'
   works within there.
 
+Security considerations:
+
+* The chroot environment entered by pts_chroot_env_qq.sh is not a virtual
+  machine, jail, sandbox or secure container, and malicious code running
+  inside the chroot environment (either as root or non-root) is able to
+  affect the host system. The chroot environment makes that harder for the
+  attacker, but a smart and motivated attacker can find a way around the
+  protection mechanisms.
+* An attack vector: processes running on the host system can be seen and
+  killed from within the chroot environment. (This can be prevented on Linux
+  with CLONE_NEWPID, but currently it's not prevented.)
+* An attack vector: pseudo terminals on the host systems can be manipulated
+  from within the chroot environment (e.g. fake user input such as
+  `rm -rf ~' can be injected).
+* An attack vector: the entire host filesystem can be seen from within the
+  chroot environment using the chdir("..") chooot escape technique
+  (http://www.ouah.org/chroot-break.html). The technique works only as root
+  (`qq root') on non-Linux systems, and it doesn't work on Linux systems,
+  because pts_chroot_env_qq.sh uses pivot_root(2) instead of chroot(2).
+* An attack vector: processes running as root within the chroot environment
+  can read and write physical memory and can read and write disks directly.
+  By doing it in a smart enough way, they can modify files on the host
+  system and change the runtime state of the host system.
+* An attack vector: processes running as root within the chroot environment
+  can reboot and halt the host system.
+* There are possibly many other attack vectors.
+* Advice: use `qq root' as little as possible (but even this doesn't
+  mitigate all the attacks).
+* If you need a jail or sandbox which is as secure as possible, use some
+  other tools (rather than pts_chroot_env_qq.sh), e.g. virtual machines
+  (with e.g. Xen, KVM or QEMU).
+
 Alternatives of pts_chroot_env_qq.sh:
 
 * schroot (https://wiki.debian.org/Schroot) and its predecessor, dchroot are
