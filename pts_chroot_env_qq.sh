@@ -905,6 +905,24 @@ if (defined($SYS_mount) and !is_same_dir($qqd, "/")) {
   @spec = ("/dev/pts", "$qqd/dev/pts", 0, MS_REC | MS_BIND, 0);
   die "$qqin: fatal: mount $qqd/dev/pts: $!\n" if syscall($SYS_mount, @spec);
 }
+
+my $username;
+if (@ARGV and $ARGV[0] eq "root") {
+  shift @ARGV;
+  $username = "root";
+  $ENV{SUDO_UID} = $ENV{SUDO_GID} = "0";
+} else {
+  die "$qqin: fatal: incomplete sudo environment: SUDO_UID, SUDO_GID, SUDO_USER\n" if
+      !$ENV{SUDO_UID} or !$ENV{SUDO_GID} or !$ENV{SUDO_USER};
+  die "$qqin: fatal: inconsistent SUDO_USER and SUDO_UID for root\n" if
+      ($ENV{SUDO_USER} eq "root") != ($ENV{SUDO_UID} == 0);
+  $username = $ENV{SUDO_USER};
+}
+die "$qqin: fatal: invalid username: $username\n" if
+    $username !~ m@\A[-+.\w]+\Z(?!\n)@;
+$ENV{LOGNAME} = $ENV{USER} = $ENV{USERNAME} = $username;
+delete @ENV{qw(SUDO_COMMAND SUDO_USER)};
+
 die "$qqin: fatal: chroot $qqd: $!\n" if !chroot($qqd);
 die "$qqin: fatal: cd /: $!\n" if !chdir("/");  # Within $qqd.
 
@@ -919,6 +937,8 @@ sub chmod_remove_high_bits($) {
 # Now create $qqd as a symlink to "/", to make filenames work.
 my $link = readlink($qqd);
 if (!defined($link) or $link ne "/") {
+  die "$qqin: fatal: symlink is a directory (maybe chroot failed?): $qqd\n" if
+      lstat($qqd) and -d(_);
   my $qqdu = $qqd;
   $qqdu =~ s@/[^/]\Z(?!\n)@@;
   $link = symlink("/", $qqd);
@@ -927,9 +947,7 @@ if (!defined($link) or $link ne "/") {
     while ($qqdu =~ s@/[^/]+\Z(?!\n)@@ and $qqdu and !-d($qqdu)) {
       push @qqdl, $qqdu;
     }
-    my $home =
-        ($ENV{SUDO_USER} and $ENV{SUDO_UID} and $ENV{SUDO_GID}) ?
-        "/home/$ENV{SUDO_USER}" : "-";
+    my $home = $username ne "root" ? "/home/$username" : "-";
     while (@qqdl) {
       $qqdu = pop(@qqdl);
       # Owned by root. Good.
@@ -945,7 +963,7 @@ if (!defined($link) or $link ne "/") {
     }
     $link = symlink("/", $qqd);
   }
-  die "$qqin: fatal: cannot create symlink: $qqd\n" if !$link;
+  die "$qqin: fatal: cannot create symlink: $qqd: $!\n" if !$link;
 }
 if (!chdir($pwd)) {
   # Some hardened Linux systems return Permission denied if root is trying
@@ -978,10 +996,10 @@ if (!is_mounted("/dev/pts")) {
 }
 
 delete @ENV{"UID", "EUID", "GID", "EGID"};  # Does not exist.
-# Prevent noninteractive bash from executing bashrc.
+# Consistently prevents noninteractive bash from executing bashrc.
 # Does not affect noniteractive 2.05b.0(1)-release, it does not execute bashrc.
 $ENV{SHLVL} = "1" if !defined($ENV{SHLVL});
-# Prevent noninteractive bash from executing bashrc.
+# delete would consistently prevent noninteractive bash from executing bashrc.
 # Does not affect noniteractive 2.05b.0(1)-release, it does not execute bashrc.
 #delete $ENV{SSH_CLIENT};
 $ENV{PS1} = q~\u@\h:\w\$ ~ if !defined($ENV{PS1}) or
@@ -1008,7 +1026,7 @@ delete @ENV{qw(
 
 delete @ENV{qw(
     BASH_TO_ZSH GPG_AGENT_INFO HISTSIZE SELINUX_INIT SSH_AGENT_PID SSH_AUTH_SOCK
-    _ SSH_CLIENT)};
+    _ SSH_CLIENT HOME)};
 # Keep: INSTANCE JOB LESSCHARSET EDITOR PAGER PTS_LOCAL_EOK TERM TEXCONFIG
 # UA_NS OLDPWD.
 
@@ -1027,65 +1045,58 @@ if (-f("/usr/lib/locale/locale-archive")) {
   delete $ENV{LC_CTYPE};
 }
 
-$ENV{HOME} = "/root";
-my $username = "root";
-my $is_root = 1;
-my $is_root_cmd = 0;
-if (@ARGV and $ARGV[0] eq "root") {
-  $is_root_cmd = 1;
-  shift @ARGV;
-} else {
-  die "$qqin: fatal: incomplete sudo environment: SUDO_UID, SUDO_GID, SUDO_USER\n" if
-      !$ENV{SUDO_UID} or !$ENV{SUDO_GID} or !$ENV{SUDO_USER};
-  $username = $ENV{SUDO_USER};
-  if ($ENV{SUDO_USER} ne "root" and $ENV{SUDO_UID} != 0) {
-    die "$qqin: fatal: invalid username: $ENV{SUDO_USER}\n" if
-        $ENV{SUDO_USER} !~ m@\A[-+.\w]+\Z(?!\n)@;
-    if (!ensure_auth_line("/etc/passwd", "$ENV{SUDO_USER}:", 1)) {
-      if (!-f("/etc/shadow")) {
-        local *FH;
-        die "$qqin: fatal: error creating /etc/shadow: $!\n" if
-            !open(FH, ">> /etc/shadow");
-        close(FH);
-        die "$qqin: fatal: error chmodding /etc/shadow: $!\n" if
-            !chmod(0600, "/etc/shadow");
-      }
-      ensure_auth_line("/etc/shadow", "$ENV{SUDO_USER}:*:17633:0:99999:7:::\n");
-      ensure_auth_line("/etc/group",  "$ENV{SUDO_USER}:x:$ENV{SUDO_GID}:\n");
-      # Do it last, in case of errors with the above.
-      ensure_auth_line("/etc/passwd", "$ENV{SUDO_USER}:x:$ENV{SUDO_UID}:$ENV{SUDO_GID}:qquser $ENV{SUDO_USER}:/home/$ENV{SUDO_USER}:$ENV{SHELL}");
-    }
-    # TODO(pts): Do we want to add the original $ENV{HOME} as a symlink?
-    my $home = "/home/$ENV{SUDO_USER}";
-    # chown below may be insecure for symlinks.
-    die "$qqin: fatal: home is a symlink: $!\n" if -l($home);
-    if (!-d($home)) {
-      mkdir "/home", 0755;
-      mkdir $home, 0755;
-      die "$qqin: fatal: could not create HOME: $home\n" if !-d($home);
-      die "$qqin: fatal: chown $home: $!\n" if
-          !chown($ENV{SUDO_UID}, $ENV{SUDO_GID}, $home);
-      chmod_remove_high_bits($home);
-    } elsif (!is_owned_and_rwx($home, $ENV{SUDO_UID} + 0)) {
-      chown($ENV{SUDO_UID}, $ENV{SUDO_GID}, $home) and
-          chmod(0755, $home);
-      die "$qqin: fatal: HOME not owned by $ENV{SUDO_USER} and rwx: $home\n" if
-          !is_owned_and_rwx($home, $ENV{SUDO_UID} + 0);
-    }
-    $ENV{HOME} = $home;
-    ($(, $)) = ($ENV{SUDO_GID}, "$ENV{SUDO_GID} $ENV{SUDO_GID}");
-    die "$qqin: fatal: setgid failed\n" if
-        $( != $ENV{SUDO_GID} or $) != $ENV{SUDO_GID};
-    # Some old versions on Perl (such as the one on Debian Potato) do not
-    # support UID > 65535, and they set $< and $> to 0 instead.
-    ($<, $>) = ($ENV{SUDO_UID}, $ENV{SUDO_UID});
-    die "$qqin: fatal: setuid failed\n" if
-        $( != $ENV{SUDO_GID} or $) != $ENV{SUDO_GID};
-    $is_root = 0;
-  }
+if (!-f("/etc/passwd")) {
+  mkdir("/etc", 0755);
+  local *F;
+  die if !open(F, ">> /etc/passwd"); close(F);
+  die if !open(F, ">> /etc/shadow"); close(F);
+  die if !open(F, ">> /etc/group");  close(F);
 }
-$ENV{LOGNAME} = $ENV{USER} = $ENV{USERNAME} = $username;
-delete @ENV{"SUDO_COMMAND", "SUDO_GID", "SUDO_UID", "SUDO_USER"};
+if (!ensure_auth_line("/etc/passwd", "$username:", 1)) {
+  if (!-f("/etc/shadow")) {
+    local *FH;
+    die "$qqin: fatal: error creating /etc/shadow: $!\n" if
+        !open(FH, ">> /etc/shadow");
+    close(FH);
+    die "$qqin: fatal: error chmodding /etc/shadow: $!\n" if
+        !chmod(0600, "/etc/shadow");
+  }
+  ensure_auth_line("/etc/shadow", "$username:*:17633:0:99999:7:::\n");
+  ensure_auth_line("/etc/group",  "$username:x:$ENV{SUDO_GID}:\n");
+  # Do it last, in case of errors with the above.
+  ensure_auth_line("/etc/passwd", "$username:x:$ENV{SUDO_UID}:$ENV{SUDO_GID}:qquser $username:/home/$username:$ENV{SHELL}");
+}
+if ($username eq "root") {
+  $ENV{HOME} = "/root";
+} else {
+  # TODO(pts): Do we want to add the original $ENV{HOME} as a symlink?
+  my $home = "/home/$username";
+  # chown below may be insecure for symlinks.
+  die "$qqin: fatal: home is a symlink: $!\n" if -l($home);
+  if (!-d($home)) {
+    mkdir "/home", 0755;
+    mkdir $home, 0755;
+    die "$qqin: fatal: could not create HOME: $home\n" if !-d($home);
+    die "$qqin: fatal: chown $home: $!\n" if
+        !chown($ENV{SUDO_UID}, $ENV{SUDO_GID}, $home);
+    chmod_remove_high_bits($home);
+  } elsif (!is_owned_and_rwx($home, $ENV{SUDO_UID} + 0)) {
+    chown($ENV{SUDO_UID}, $ENV{SUDO_GID}, $home) and
+        chmod(0755, $home);
+    die "$qqin: fatal: HOME not owned by $username and rwx: $home\n" if
+        !is_owned_and_rwx($home, $ENV{SUDO_UID} + 0);
+  }
+  $ENV{HOME} = $home;
+  ($(, $)) = ($ENV{SUDO_GID}, "$ENV{SUDO_GID} $ENV{SUDO_GID}");
+  die "$qqin: fatal: setgid failed\n" if
+      $( != $ENV{SUDO_GID} or $) != $ENV{SUDO_GID};
+  # Some old versions on Perl (such as the one on Debian Potato) do not
+  # support UID > 65535, and they set $< and $> to 0 instead.
+  ($<, $>) = ($ENV{SUDO_UID}, $ENV{SUDO_UID});
+  die "$qqin: fatal: setuid failed\n" if
+      $( != $ENV{SUDO_GID} or $) != $ENV{SUDO_GID};
+}
+delete @ENV{"SUDO_GID", "SUDO_UID"};
 push @ARGV, ($ENV{SHELL} eq "/bin/bash") ?
     ("/bin/bash", "--norc") : ("/bin/sh") if !@ARGV;
 
@@ -1099,7 +1110,7 @@ push @ARGV, ($ENV{SHELL} eq "/bin/bash") ?
   for my $dir (split(/:+/, ($qqpath or ""))) {
     # Do not match $home (outside chroot) itself.
     if ($dir eq $qqd or substr($dir, 0, length($qqds) eq $qqds)) {
-    } elsif (!$is_root and substr($dir, 0, length($homes)) eq $homes) {
+    } elsif ($username ne "root" and substr($dir, 0, length($homes)) eq $homes) {
       $dir = "$ENV{HOME}/" . substr($dir, length($homes));
     } else {
       next
@@ -1113,7 +1124,7 @@ push @ARGV, ($ENV{SHELL} eq "/bin/bash") ?
   $ENV{PATH} = join(":", @path_out);
 }
 
-if (@ARGV and $ARGV[0] eq "cd" and !$is_root_cmd) {
+if (@ARGV and $ARGV[0] eq "cd") {
   # Print the name of the user-writable home directory, and exit.
   print "$qqd$ENV{HOME}\n";
   exit;
@@ -1129,7 +1140,7 @@ die "$qqin: fatal: exec $ARGV[0]: $!\n" if !exec(@ARGV);
   # TODO(pts): Try nesting use-unshare/use-unshare. Does the MS_PRIVATE mount work on /, and is it effective?
   # TODO(pts): Try nesting of qq with use-unshare/use-sudo and use-unshare/use-unshare. Give recommendations.
   # TODO(pts): Download and use staticperl if Perl not installed to the host.
-  # TODO(pts): Run __QQIN__ with Perl 5.004 for maximum compatibility.
+  # TODO(pts): Try __QQIN__ and  with Perl 5.004 for maximum compatibility.
   # Above setting LC_ALL=C instead of PERL_BADLANG=x, to prevent locale warnings.
 }
 
