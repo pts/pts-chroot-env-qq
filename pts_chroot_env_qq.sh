@@ -1114,20 +1114,26 @@ if (-f("/usr/lib/locale/locale-archive")) {
 
 if (!-f("/etc/passwd")) {
   mkdir("/etc", 0755);
-  local *F;
-  die if !open(F, ">> /etc/passwd"); close(F);
-  die if !open(F, ">> /etc/shadow"); close(F);
-  die if !open(F, ">> /etc/group");  close(F);
+  local *FH;
+  die "$qqin: fatal: error creating /etc/passwd: $!\n" if
+      !open(FH, ">> /etc/passwd");
+  close(FH);
+}
+if (!-f("/etc/shadow")) {
+  local *FH;
+  die "$qqin: fatal: error creating /etc/shadow: $!\n" if
+      !open(FH, ">> /etc/shadow");
+  close(FH);
+  die "$qqin: fatal: error chmodding /etc/shadow: $!\n" if
+      !chmod(0600, "/etc/shadow");
+}
+if (!-f("/etc/group")) {
+  local *FH;
+  die "$qqin: fatal: error creating /etc/group: $!\n" if
+      !open(FH, ">> /etc/group");
+  close(FH);
 }
 if (!ensure_auth_line("/etc/passwd", "$username:", 1)) {
-  if (!-f("/etc/shadow")) {
-    local *FH;
-    die "$qqin: fatal: error creating /etc/shadow: $!\n" if
-        !open(FH, ">> /etc/shadow");
-    close(FH);
-    die "$qqin: fatal: error chmodding /etc/shadow: $!\n" if
-        !chmod(0600, "/etc/shadow");
-  }
   ensure_auth_line("/etc/shadow", "$username:*:17633:0:99999:7:::\n");
   ensure_auth_line("/etc/group",  "$username:x:$ENV{SUDO_GID}:\n");
   # Do it last, in case of errors with the above.
