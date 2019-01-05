@@ -226,13 +226,15 @@ Usage:
   command as root within the chroot. For some commands (such as apt-get,
   dpkg and su), prepending root is not deeded, because pts_chroot_env_qq.sh
   recognizes them and runs them as root.
+* sudo and su do not work by default within most chroot environments (and it
+  is good security practice to prevent them from working), use qq root instead.
 * Alternatively, run qq cd to see a writable directory name which works
   inside and outside the chroot. You can use this directory to transfer
   files even is a regular (non-root) user between the chroot and the host.
 * To install packages to a Debian or Ubuntu chroot, first run
   `qq apt-get update', then run `qq apt-get install PACKAGENAME'.
 * To force rootless mode, run qq use-rootless [...].
-* To force sudo for the initial setup (rather than rooless mode), run qq
+* To force sudo for the initial setup (rather than rootless mode), run qq
   use-sudo [...].
 
 Compatibility with old Linux systems:
