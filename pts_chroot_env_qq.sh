@@ -1062,17 +1062,39 @@ if (!is_mounted("/dev/pts")) {
       system("/bin/mount", "devpts", "/dev/pts", "-t", "devpts");
 }
 
-delete @ENV{"UID", "EUID", "GID", "EGID"};  # Does not exist.
-# Consistently prevents noninteractive bash from executing bashrc.
-# Does not affect noniteractive 2.05b.0(1)-release, it does not execute bashrc.
+# Recent versions of bash (e.g. 4.x, but not 2.05b) executes etc/bash.bashrc
+# and ~/.bashrc if they detect that they were invoked by rshd or sshd. We
+# set $ENV{SHLVL} here to prevent this (so that bashrc would not mess up our
+# carefully crafted $ENV{PS1}, $ENV{PATH} and $ENV{LC_CTYPE}). Alternatively,
+# to prevent this, we could delete $ENV{SSH_CLIENT}.
+#
+# Our shell will not be a login shell, so it will not read /etc/profile,
+# ~/.bash_profile, ~/.bash_login, ~/.profile or ~/.bash_logout.
+#
+# Our shell can be an interactive shell, and then it would read
+# /etc/bash.bashrc and ~/.bashrc. To prevent this, we invoke it with --norc
+# by default (see below). If the user wants bashrc read, he should run
+# qq bash.
+#
+# If the user runs an interactive bash later within the chroot environment
+# (e.g. qq; and then bash), then that bash will read /etc/bash.bashrc (exits
+# early if $PS1 is set) and ~/.bashrc. The latter is missing by default (if
+# qq has created $HOME for the user), but can be present (copied from
+# /etc/skel/.bashrc) if $HOME was created by adduser within the chroot. In
+# this case it may override $PS1 (and make it include $ENV{debian_chroot},
+# so we set that below). There is no easy way for us to disable this
+# subsequent execution of ~/.bashrc, so we do nothing.
+#
+# Some shells including bash may also read the file named by $ENV{ENV} or
+# $ENV{BASH_ENV} at startup, so we delete those environment variables below.
 $ENV{SHLVL} = "1" if !defined($ENV{SHLVL});
-# delete would consistently prevent noninteractive bash from executing bashrc.
-# Does not affect noniteractive 2.05b.0(1)-release, it does not execute bashrc.
-#delete $ENV{SSH_CLIENT};
-$ENV{PS1} = q~\u@\h:\w\$ ~ if !defined($ENV{PS1}) or
-    $ENV{PS1} =~ m@%@;  # zsh prompt.
+delete @ENV{qw(ENV BASH_ENV SHELLOPTS BASHOPTS CDPATH GLOBIGNORE)};
 my $qqdlast = $qqd;
 $qqdlast =~ s@\A.*/@@s;
+$ENV{debian_chroot} = "qq=$qqdlast";
+
+$ENV{PS1} = q~\u@\h:\w\$ ~ if !defined($ENV{PS1}) or
+    $ENV{PS1} =~ m@%@;  # zsh prompt.
 $ENV{SHELL} = -f("/bin/bash") ? "/bin/bash" : "/bin/sh";
 my $shell_link =
     (@ARGV and ($ARGV[0] eq "dash" or $ARGV[0] eq "/bin/dash")) ? "dash" :
@@ -1103,7 +1125,7 @@ delete @ENV{qw(
 
 delete @ENV{qw(
     BASH_TO_ZSH GPG_AGENT_INFO HISTSIZE SELINUX_INIT SSH_AGENT_PID SSH_AUTH_SOCK
-    _ SSH_CLIENT HOME)};
+    _ SSH_CLIENT HOME UID EUID GID EGID)};
 # Keep: INSTANCE JOB LESSCHARSET EDITOR PAGER PTS_LOCAL_EOK TERM TEXCONFIG
 # UA_NS OLDPWD.
 
