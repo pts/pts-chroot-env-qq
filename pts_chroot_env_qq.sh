@@ -562,16 +562,23 @@ use strict;
 
 my $qqin = "qqin";  # Can be overwritten.
 
+# Linux-specific constants.
 sub CLONE_NEWUSER() { 0x10000000 }  # New user namespace.
 sub CLONE_NEWNS() { 0x20000 }       # New mount namespace.
 sub CLONE_NEWIPC() { 0x08000000 }   # New IPC namespace.
 sub MS_RDONLY() { 0x1 }
 sub MS_BIND() { 0x1000 }
+sub MS_MOVE() { 0x2000 }
 sub MS_REC() { 0x4000 }
 sub MS_PRIVATE() { 0x40000 }
+sub MS_SLAVE() { 0x80000 }
+sub O_RDONLY { 0 }
+sub O_DIRECTORY() { 00200000 }
+sub MNT_DETACH() { 2 }
 
-# Returns (undef, $SYS_mount, $SYS_unshare) or ($error, undef, undef).
-sub detect_unshare() {
+# Returns (undef, $SYS_mount, $SYS_unshare, $SYS_pivot_root, $SYS_fchdir, $SYS_umount2) or
+# ($error, undef, undef, undef, undef).
+sub detect_linux_syscalls() {
   return ("Linux operating system needed", undef, undef) if $^O ne "linux";
   # We figure out the architecture of the current process by opening the Perl
   # interpreter binary. Doing require POSIX; die((POSIX::uname())[4])
@@ -604,34 +611,34 @@ sub detect_unshare() {
   # System call numbers: https://fedora.juszkiewicz.com.pl/syscalls.html
   if (/\A\x7FELF\x02\x01\x01[\x00\x03]........[\x02\x03]\x00\x3E/s) {
     $arch = "amd64";  # x86_64, x64.
-    return (undef, 165, 272);
+    return (undef, 165, 272, 155, 81, 166);
   } elsif (/\A\x7FELF\x02\x01\x01[\x00\x03]........[\x02\x03]\x00\xB7/s) {
     $arch = "aarch64";  # arm64.
-    return (undef, 40, 97);
+    return (undef, 40, 97, 41, 50, 39);
   } elsif (/\A\x7FELF\x01\x01\x01[\x00\x03]........[\x02\x03]\x00\x03/s) {
     $arch = "i386";  # i486, i586, i686, x86.
-    return (undef, 21, 310);
+    return (undef, 21, 310, 217, 133, 52);
   } elsif (/\A\x7FELF\x01\x01\x01[\x00\x03]........[\x02\x03]\x00\x28/s) {
     $arch = "arm";  # arm32, armel, armhf.
-    return (undef, 21, 337);
+    return (undef, 21, 337, 218, 133, 52);
   } elsif (/\A\x7FELF\x02\x02\x01[\x00\x03]........\x00[\x02\x03]\x00/s) {
     $arch = "s390x";  # s390. s390x for Debian 9. Last byte is 0 (no architecture).
-    return (undef, 21, 303);
+    return (undef, 21, 303, 217, 133, 52);
   } elsif (/\A\x7FELF\x01\x02\x01[\x00\x03]........\x00[\x02\x03][\x00\x08]/s) {
     $arch = "mips";  # mips for Debian 9. Last byte is 0 (no architecture).
-    return (undef, 4021, 4303);
+    return (undef, 4021, 4303, 4216, 4133, 4052);
   } elsif (/\A\x7FELF\x02\x01\x01[\x00\x03]........[\x02\x03]\x00\x08/s) {
     $arch = "mips64el";
-    return (undef, 5160, 5262);  # For mips64n32, SYS_unshare is 6266.
+    return (undef, 5160, 5262, 5151, 5079, 5161);  # For mips64n32, SYS_unshare is 6266.
   } elsif (/\A\x7FELF\x01\x01\x01[\x00\x03]........[\x02\x03]\x00\x08/s) {
     $arch = "mipsel";  # Like mips, but LSB-first (little endiel).
-    return (undef, 4021, 4303);
+    return (undef, 4021, 4303, 4216, 4133, 4052);
   } elsif (/\A\x7FELF\x02\x01\x01[\x00\x03]........[\x02\x03]\x00\x15/s) {
     $arch = "ppc64el";  # ppc64, powerpc64.
-    return (undef, 21, 282);
+    return (undef, 21, 282, 203, 133, 52);
   } elsif (/\A\x7FELF\x01\x01\x01[\x00\x03]........[\x02\x03]\x00\x15/s) {
     $arch = "ppc32el";  # ppc32, powerpc32, powerpc.
-    return (undef, 21, 282);
+    return (undef, 21, 282, 203, 133, 52);
   } else {
     return ("unknown architecture for the Perl process\n", undef, undef);
   }
@@ -694,11 +701,11 @@ die "$qqin: fatal: empty \$ENV{__QQD__}\n" if !defined($qqd) and !length($qqd);
 die "$qqin: fatal: \$ENV{__QQD__} does not start with /: $qqd" if
     substr($qqd, 0, 1) ne "/";
 
-# Returns $unshare_error which is undef on no error, otherwise true.
+# Returns $syscall_error which is undef on no error, otherwise true.
 sub try_unshare() {
-  my ($unshare_error, $SYS_mount, $SYS_unshare) = detect_unshare();
+  my ($unshare_error, $SYS_mount, $SYS_unshare) = detect_linux_syscalls();
   if (defined($unshare_error) or !defined($SYS_unshare)) {
-    $unshare_error = "detect_unshare failed" if !defined($unshare_error);
+    $unshare_error = "detect_linux_syscalls failed" if !defined($unshare_error);
   } elsif ($< != $>) {
     $unshare_error = "real and effective UID are different (running as setuid?)";
   } elsif ($( + 0 != $) + 0) {
@@ -810,7 +817,7 @@ if ($ENV{__QQLCALL__}) {
 }
 delete @ENV{"__QQD__", "__QQPATH__", "__QQHOME__", "__QQLCALL__", "__QQIN__", "__QQPRESUDO__", "__QQUNSHARE__"};
 # We must call this before chroot(...), for the correct $^X value.
-my ($unshare_error, $SYS_mount, $SYS_unshare) = detect_unshare();
+my ($syscall_error, $SYS_mount, $SYS_unshare, $SYS_pivot_root, $SYS_fchdir, $SYS_umount2) = detect_linux_syscalls();
 
 if ($do_unshare) {
   # $ENV{SUDO_USER}, $ENV{SUDO_UID} and $ENV{SUDO_GID} is already set up by qqpresudo.
