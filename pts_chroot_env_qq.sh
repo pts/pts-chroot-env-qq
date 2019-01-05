@@ -933,6 +933,11 @@ delete @ENV{qw(SUDO_COMMAND SUDO_USER)};
 
 die "$qqin: fatal: chroot $qqd: $!\n" if !chroot($qqd);
 die "$qqin: fatal: cd /: $!\n" if !chdir("/");  # Within $qqd.
+#die if !opendir(D, "/"); die "qqd contents: (@{[readdir(D)]}).\n";
+# TODO(pts): Close all file descriptors (/proc/self/fd) except for 0, 1 and 2?
+# TODO(pts): Redirect /dev/null on file descriptors 0, 1 and 2 from outside to inside?
+# TODO(pts): Populate /dev as https://github.com/opencontainers/runc/blob/master/libcontainer/SPEC.md does it.
+# TODO(pts): Add unshare(CLONE_NEWPID) as optional.
 
 # Removes setuid, setgid and sticky bits.
 sub chmod_remove_high_bits($) {
