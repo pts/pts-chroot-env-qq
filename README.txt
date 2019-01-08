@@ -86,8 +86,8 @@ Convenience functionality provided by pts_chroot_env_qq.sh:
   doesn't even need sudo to root. (Limitations: sudo to root is needed for
   the creation of the chroot directory and its contents such as /dev/null, for
   the first non-root run of qq, and for all runs of qq root.)
-* On Linux it automates the creation of chroot environments with
-  Linux distributions Ubuntu, Debian and Alpine. (For this sudo to root is
+* On Linux it automates the creation of chroot environments with Linux
+  distributions Ubuntu, Debian, Alpine and Tanglu. (For this sudo to root is
   needed.)
 * It removes X11, GUI desktop (e.g. D-Bus) and SSH environment variables.
 
@@ -188,7 +188,7 @@ How to create a chroot environment:
   * https://hub.docker.com/r/bitnami/minideb/tags/
 
 * To install an initial chroot environment on Linux i386 or amd64 systems
-  for Linux distributions Ubuntu and Debian using Debootstrap (more
+  for Linux distributions Ubuntu, Debian or Tanglu using Debootstrap (more
   specifically, pts-debootstrap: https://github.com/pts/pts-debootstrap/),
   run `qq debootsrap DISTRO TARGETDIR', e.g.
 
@@ -203,7 +203,9 @@ How to create a chroot environment:
   thus it is slower than `qq get-lxc', `qq get-ubuntu' and `qq get-docker'.
   The advantage of `qq pts-debootstrap' is that it supports very old Ubuntu
   and Debian releases: Debian slink (Debian 2.1, released on 1999-03-19) and
-  Ubuntu feisty (Ubuntu 7.04, released 2007-04-19) both work.
+  Ubuntu feisty (Ubuntu 7.04, released 2007-04-19) both work. (It also
+  supports all Tanglu releases so far: Tanglu aequorea (1.0),
+  Tanglu bartholomea (2.0), Tanglu chromodoris (3.0), Tanglu dasyatis (4.0).
 
 * You can use any other method you already know to create the chroot
   environment. If it doesn't have /sbin/init and /etc/issue, then create a
