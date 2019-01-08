@@ -259,7 +259,7 @@ Compatibility with old Linux systems:
   works within there.
 
 * The oldest Ubuntu that is known to work with pts_chroot_env_qq.sh is
-  feisty (Ubuntu 7.04, released on 2007-04-19). UIDs larger than 65535 also
+  breezy (Ubuntu 5.10, released on 2005-10-12). UIDs larger than 65535 also
   work.
 
   `qq pts-debootstrap feisty feisty_dir' also works, and `qq apt-get install'
