@@ -72,6 +72,7 @@ __qq_pts_debootstrap__() {
   $SUDO "$DIR.pts-debootstrap/pts-debootstrap/pts-debootstrap" "$@"
   local STATUS="$?"
   rm -rf "$DIR.pts-debootstrap"
+  __qq_init__ "$DIR"
   return "$?"
 }
 
