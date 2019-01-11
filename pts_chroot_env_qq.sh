@@ -29,51 +29,30 @@ __qq_pts_debootstrap__() {
     echo "qq: fatal: target directory already exists, not clobbering: $DIR" >&2
     return 100
   fi
-  # Example: $ wget http://pts.50.hu/files/pts-debootstrap/pts-debootstrap-latest.sfx.7z
-  local URL=https://raw.githubusercontent.com/pts/pts-debootstrap/master/README.txt
-  local S="$(wget -qO- "$URL")"
-  if test -z "$S"; then
-    echo "qq: fatal: error downloading URL: $URL" >&2
-    return 101
-  fi
-  local URL="$(echo "$S" | while read A B URL; do
-        if test "$A" = \$ && test "$B" = wget &&
-           (test "${URL#http://}" != "$URL" || test "${URL#https://}" != "$URL") &&
-           test "${URL%/pts-debootstrap-latest.sfx.7z}" != "$URL"; then
-          echo "$URL"
-          while read LINE; do :; done
-          break
-        fi
-      done)"
-  if test -z "$URL"; then
-    echo "qq: fatal: could not find URL of pts-debootstrap-latest.sfx.7z" >&2
-    return 102
-  fi
   rm -rf "$DIR.pts-debootstrap"
-  if ! mkdir -p "$DIR.pts-debootstrap"; then
-    echo "qq: fatal: mkdir failed" >&2
-    return 109
-  fi
-  if wget -qO "$DIR.pts-debootstrap/pts-debootstrap-latest.sfx.7z" "$URL" &&
-     test -s "$DIR.pts-debootstrap/pts-debootstrap-latest.sfx.7z"; then
+  URL=https://raw.githubusercontent.com/pts/pts-debootstrap/master/pts-debootstrap
+  if wget -qO "$DIR.pts-debootstrap" "$URL" &&
+     test -s "$DIR.pts-debootstrap"; then
     :
   else
     echo "qq: fatal: error downloading URL: $URL" >&2
     return 103
   fi
-  if ! (cd "$DIR.pts-debootstrap" &&
-        chmod 755 pts-debootstrap-latest.sfx.7z &&
-        ./pts-debootstrap-latest.sfx.7z -y >/dev/null); then
-    echo "qq: fatal: error extracting pts-debootstrap-latest.sfz.7z" >&2
+  if ! chmod 755 "$DIR.pts-debootstrap"; then
+    echo "qq: fatal: error chmodding: $DIR.pts-debootstrap" >&2
     return 104
   fi
   local SUDO=sudo
   test "$EUID" = 0 && SUDO=
-  $SUDO "$DIR.pts-debootstrap/pts-debootstrap/pts-debootstrap" "$@"
+  $SUDO "$DIR.pts-debootstrap" "$@"
   local STATUS="$?"
   rm -rf "$DIR.pts-debootstrap"
+  if test "$STATUS" != 0; then
+    rm  -rf "$DIR" 2>/dev/null
+    test -d "$DIR" && $SUDO rm -rf "$DIR"
+    return "$STATUS"
+  fi
   __qq_init__ "$DIR"
-  return "$?"
 }
 
 __qq_get_alpine__() {
