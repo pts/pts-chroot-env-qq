@@ -513,15 +513,35 @@ __qq__() {
   elif test "$1" = get-ubuntu; then shift; __qq_get_ubuntu__ "$@"; return "$?"
   elif test "$1" = get-docker; then shift; __qq_get_docker__ "$@"; return "$?"
   fi
-  local __QQD__="$PWD" __QQFOUND__
-  test "${__QQD__#/}" = "$__QQD__" && __QQD__="$(pwd)"
-  if test "${__QQD__#/}" = "$__QQD__"; then
-    echo "qq: fatal: cannot find current directory: $__QQD__" >&2
+  local __QQD__ __QQPWD__ __QQOLDPWD__ __QQFOUND__
+  __QQOLDPWD__="$PWD"
+  test "${__QQOLDPWD__#/}" = "$__QQOLWPWD__" && __QQOLDPWD__="$(pwd)"
+  if test "${__QQOLDPWD__#/}" = "$__QQOLDPWD__"; then
+    echo "qq: fatal: cannot find current directory: $__QQOLDPWD__" >&2
     return 123
+  fi
+  while test "${__QQOLDPWD__#//}" != "$__QQOLDPWD__"; do
+    __QQOLDPWD__="${__QQOLDPWD__#/}"  # Remove duplicate leading slashes.
+  done
+  if test "$1" = use-workdir && test $# -gt 1; then
+    __QQD__="$2"; shift; shift
+    if ! test -d "$__QQD__"; then
+      echo "qq: fatal: not a directory: $__QQD__" >&2
+      return 122
+    fi
+    test "${__QQD__#/}" = "$__QQD__" && __QQD__="$(cd "$__QQD__" && pwd)"
+    if test "${__QQD__#/}" = "$__QQD__"; then
+      echo "qq: fatal: cannot find work directory: $__QQD__" >&2
+      return 123
+    fi
+  else
+    __QQD__="$__QQOLDPWD__"
+    __QQOLDPWD__=
   fi
   while test "${__QQD__#//}" != "$__QQD__"; do
     __QQD__="${__QQD__#/}"  # Remove duplicate leading slashes.
   done
+  __QQPWD__="$__QQD__"
   while test "$__QQD__"; do
     __QQFOUND__=1
     test -x "$__QQD__/sbin/init" && test -f "$__QQD__/etc/issue" && break
@@ -532,7 +552,7 @@ __qq__() {
     __QQD__="${__QQD__%/*}"
   done
   if test -z "$__QQFOUND__"; then
-    echo "qq: fatal: system-in-chroot not found up from: $PWD" >&2
+    echo "qq: fatal: system-in-chroot not found up from: $__QQPWD__" >&2
     return 124
   fi
   local __QQLIB__='
@@ -730,7 +750,7 @@ sub try_unshare(;$) {
   $unshare_error
 }
 
-my @sudo = ("sudo", "-E");
+my @sudo = ("sudo", "-E");  # Preserve the environment.
 $ENV{__QQUNSHARE__} = 0;
 my @run_as_root = (
     "root", "su", "sudo", "login", "passwd", "apt-get", "apt", "dpkg", "rpm",
@@ -779,24 +799,27 @@ die "$qqin: fatal: exec failed: $!\n" if
 
 my $qqd = $ENV{__QQD__};
 my $qqpath = $ENV{__QQPATH__};
-my $pwd = $ENV{PWD};
+my $qqpwd = $ENV{__QQPWD__};
+my $qqoldpwd = $ENV{__QQOLDPWD__};
+$qqoldpwd = undef if defined($qqoldpwd) and !length($qqoldpwd);
 my $home = $ENV{__QQHOME__};
 die "$qqin: fatal: empty \$ENV{__QQD__}\n" if !defined($qqd) and !length($qqd);
 die "$qqin: fatal: empty \$ENV{__QQPATH__}\n" if !$qqpath;
 # Too late for a getpwnam or getpwuid after a chroot.
 die "$qqin: fatal: empty \$ENV{__QQHOME__}\n" if !$home;
 die "$qqin: fatal: bad QQD snytax: $qqd\n" if $qqd !~ m@\A(/[^/]+)+@;
-die "$qqin: fatal: bad PWD snytax: $pwd\n" if $pwd !~ m@\A(/[^/]+)+@;
+die "$qqin: fatal: bad QQPWD snytax: $qqpwd\n" if $qqpwd !~ m@\A(/[^/]+)+@;
+die "$qqin: fatal: bad QQOLDPWD snytax: $qqoldpwd\n" if defined($qqoldpwd) and $qqoldpwd !~ m@\A(/[^/]+)+@;
 die "$qqin: fatal: missing \$ENV{__QQUNSHARE__}" if !defined($ENV{__QQUNSHARE__});
 my $do_unshare=!(!($ENV{__QQUNSHARE__}));
-die "$qqin: fatal: QQD is not a prefix of PWD" if
-    0 == length($pwd) or substr("$pwd/", 0, length($qqd) + 1) ne "$qqd/";
+die "$qqin: fatal: QQD is not a prefix of QQPWD" if
+    0 == length($qqpwd) or substr("$qqpwd/", 0, length($qqd) + 1) ne "$qqd/";
 if ($ENV{__QQLCALL__}) {
   $ENV{LC_ALL} = $ENV{__QQLCALL__};
 } else {
   delete $ENV{LC_ALL};
 }
-delete @ENV{"__QQD__", "__QQPATH__", "__QQHOME__", "__QQLCALL__", "__QQIN__", "__QQPRESUDO__", "__QQUNSHARE__"};
+delete @ENV{"__QQD__", "__QQPWD__", "__QQOLDPWD__", "__QQPATH__", "__QQHOME__", "__QQLCALL__", "__QQIN__", "__QQPRESUDO__", "__QQUNSHARE__"};
 # We must call this before chroot(...), for the correct $^X value.
 my ($syscall_error, $SYS_mount, $SYS_unshare, $SYS_pivot_root, $SYS_fchdir, $SYS_umount2) = detect_linux_syscalls();
 umask(0022);
@@ -912,6 +935,12 @@ if (defined($SYS_mount) and !is_same_dir($qqd, "/")) {
   @spec = ("/dev/pts", "$qqd/dev/pts", 0, MS_REC | MS_BIND, 0);
   die "$qqin: fatal: mount $qqd/dev/pts: $!\n" if syscall($SYS_mount, @spec);
 }
+if (defined($qqoldpwd)) {  # `qq use-workdir $qqd` was run in directory $qqpwd.
+  die "$qqin: fatal: missing work directory: $qqpwd\n" if !-d($qqpwd);
+  die "$qqin: fatal: missing work source directory: $qqoldpwd\n" if !-d($qqoldpwd);
+  my @spec = ($qqoldpwd, $qqpwd, 0, MS_REC | MS_BIND, 0);
+  die "$qqin: fatal: mount $qqpwd: $!\n" if syscall($SYS_mount, @spec);
+}
 
 my $username;
 if (@ARGV and $ARGV[0] eq "root") {
@@ -1001,7 +1030,8 @@ sub chmod_remove_high_bits($) {
 }
 
 # Now create $qqd as a symlink to "/", to make filenames work.
-my $link = readlink($qqd);
+my $link = defined($qqoldpwd) ? "/"  # Do not create rootdir symlink if use-workdir was specified.
+    : readlink($qqd);
 if (!defined($link) or $link ne "/") {
   die "$qqin: fatal: symlink is a directory (maybe chroot failed?): $qqd\n" if
       lstat($qqd) and -d(_);
@@ -1031,7 +1061,13 @@ if (!defined($link) or $link ne "/") {
   }
   die "$qqin: fatal: cannot create symlink: $qqd: $!\n" if !$link;
 }
-if (!chdir($pwd)) {
+if (defined($qqoldpwd)) {  # With use-workdir.
+  # Convert chdir to relative, because we have not created to rootdir
+  # symlink.
+  $qqpwd = substr($qqpwd, length($qqd));
+  $qqpwd = "." if !length($qqpwd);
+}
+if ($qqpwd ne "." and !chdir($qqpwd)) {
   # Some hardened Linux systems return Permission denied if root is trying
   # to follow a symlink which he does not own. Since lchown(2) is not
   # available in Perl, we recreate the symlink and retry.
@@ -1040,7 +1076,7 @@ if (!chdir($pwd)) {
     die "$qqin: fatal: cannot recreate symlink: $qqd: $!\n" if
         !symlink("/", $qqd);
   }
-  die "$qqin: fatal: chdir $pwd: $!\n" if !chdir($pwd);
+  die "$qqin: fatal: chdir $qqpwd: $!\n" if !chdir($qqpwd);
 }
 
 sub is_mounted($) {
@@ -1275,7 +1311,7 @@ if (@ARGV and $ARGV[0] eq "cd") {
 
 # exec(...) also prints a detailed error message.
 die "$qqin: fatal: exec $ARGV[0]: $!\n" if !exec(@ARGV);
-' __QQD__="$__QQD__" __QQPATH__="$PATH" __QQHOME__="$HOME" __QQLCALL__="$LC_ALL" PWD="$PWD" LC_ALL=C exec perl -we'eval$ENV{__QQPRESUDO__};die$@if$@' -- "$@"
+' __QQD__="$__QQD__" __QQPWD__="$__QQPWD__" __QQOLDPWD__="$__QQOLDPWD__" __QQPATH__="$PATH" __QQHOME__="$HOME" __QQLCALL__="$LC_ALL" PWD="$PWD" LC_ALL=C exec perl -we'eval$ENV{__QQPRESUDO__};die$@if$@' -- "$@"
   # TODO(pts): Add more CPU architectures.
   # TODO(pts): Try nesting use-unshare/use-unshare. Does the MS_PRIVATE mount work on /, and is it effective?
   # TODO(pts): Try nesting of qq with use-unshare/use-sudo and use-unshare/use-unshare. Give recommendations.
