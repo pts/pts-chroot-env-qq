@@ -886,6 +886,24 @@ if (!-d("$qqd/dev/pts")) {  # TODO(pts): Disallow symlinks.
   mkdir("$qqd/dev/pts", 0755);
   die "$qqin: fatal: not a directory: $qqd/dev/pts\n" if !-d("$qqd/dev/pts");
 }
+if (!-e("$qqd/dev/ptmx")) {  # TODO(pts): Disallow symlinks.
+  symlink("pts/ptmx", "$qqd/dev/ptmx");  # It is OK to fail here.
+}
+for my $node (qw(null zero full random urandom kmsg tty console)) {
+  #if (!-c("$qqd/dev/$node")) {...}  # TODO(pts): Disallow symlinks.
+  if (-f("$qqd/dev/$node")) {  # Already exists as a regular file. TODO(pts): Disallow symlinks.
+    if (-c("/dev/$node")) {
+      #if (!-e("$qqd/dev/$node")) {
+      #  my $qqp = (substr($qqd, 0, 1) eq "/") ? "" : "./";
+      #  close(FH) if open(FH, ">> $qqp$qqd/dev/$node");
+      #}
+      my @spec = ("/dev/$node", "$qqd/dev/$node", 0, MS_REC | MS_BIND, 0);
+      # This bind mount works with use-rootless.
+      die "$qqin: fatal: mount $qqd/dev/$node: $!\n" if syscall($SYS_mount, @spec);
+    }
+    die "$qqin: fatal: not a character device: $qqd/dev/$node\n" if !-c("$qqd/dev/$node");
+  }
+}
 # Non-Linux systems will run mount(8) later.
 if (defined($SYS_mount) and !is_same_dir($qqd, "/")) {
   my @spec = ("/proc", "$qqd/proc", 0, MS_REC | MS_BIND, 0);
