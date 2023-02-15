@@ -682,7 +682,8 @@ die "$qqin: fatal: \$ENV{__QQD__} does not start with /: $qqd" if
     substr($qqd, 0, 1) ne "/";
 
 # Returns $syscall_error which is undef on no error, otherwise true.
-sub try_unshare() {
+sub try_unshare(;$) {
+  my $do_ignore_dirs = $_[0];
   my ($unshare_error, $SYS_mount, $SYS_unshare) = detect_linux_syscalls();
   if (defined($unshare_error) or !defined($SYS_unshare)) {
     $unshare_error = "detect_linux_syscalls failed" if !defined($unshare_error);
@@ -707,16 +708,16 @@ sub try_unshare() {
       } elsif (!stat("$qqd/dev/pts") or !-d(_)) {
         # TODO(pts): Do not follow local symlinks above and elsewhere.
         $unshare_error = "not a directory: $qqd/dev/pts";
-      } elsif ((readlink("$qqd$qqd") or 0) ne "/") {
+      } elsif (!$do_ignore_dirs and (readlink("$qqd$qqd") or 0) ne "/") {
         # TODO(pts): Do not follow local symlinks above and elsewhere.
         $unshare_error = "symlink does not point to /: $qqd$qqd";
-      } elsif (!-d("$qqd/home/$username")) {
+      } elsif (!$do_ignore_dirs and !-d("$qqd/home/$username")) {
         # TODO(pts): Do not follow local symlinks above and elsewhere.
         $unshare_error = "home directory does not exist: $qqd/home/$username";
-      } elsif (!is_owned_and_rwx("$qqd/home/$username", $>)) {
+      } elsif (!$do_ignore_dirs and !is_owned_and_rwx("$qqd/home/$username", $>)) {
         # TODO(pts): Do not follow local symlinks above and elsewhere.
         $unshare_error = "home directory not owned by $username and rwx: $qqd/home/$username";
-      } elsif (!ensure_auth_line("$qqd/etc/passwd", "$username:", 1)) {
+      } elsif (!$do_ignore_dirs and !ensure_auth_line("$qqd/etc/passwd", "$username:", 1)) {
         # TODO(pts): Do not follow local /etc symlinks above and elsewhere.
         # TODO(pts): Try to fix it if /etc/passwd, /etc/group and /etc/shadow are writable.
         # TODO(pts): Also check that the UID and GID are specified correctly.
@@ -740,7 +741,7 @@ if (@ARGV and grep ({ $_ eq $ARGV[0] } @run_as_root)) {
   shift @ARGV;
 } elsif (@ARGV and ($ARGV[0] eq "use-unshare" or $ARGV[0] eq "use-rootless")) {  # Override autodetection.
   shift @ARGV;
-  my $unshare_error = try_unshare();
+  my $unshare_error = try_unshare(1);  # With $do_ignore_dirs=1, we will create those directories later.
   die "$qqin: fatal: use-unshare failed: $unshare_error\n" if
       $unshare_error;
   @sudo = ();
