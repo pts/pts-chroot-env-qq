@@ -677,7 +677,7 @@ sub is_owned_and_rwx($$) {
 
 $qqin = "qqpresudo";
 my $qqd = $ENV{__QQD__};
-die "$qqin: fatal: empty \$ENV{__QQD__}\n" if !defined($qqd) and !length($qqd);
+die "$qqin: fatal: empty \$ENV{__QQD__}\n" if !defined($qqd) or !length($qqd);
 die "$qqin: fatal: \$ENV{__QQD__} does not start with /: $qqd" if
     substr($qqd, 0, 1) ne "/";
 
