@@ -881,7 +881,7 @@ if (!-d("$qqd/proc")) {  # TODO(pts): Disallow symlinks in $qqd/proc.
   mkdir("$qqd/proc", 0755);
   die "$qqin: fatal: not a directory: $qqd/proc\n" if !-d("$qqd/proc");
 }
-if (-d("$qqd/dev/pts")) {  # TODO(pts): Disallow symlinks.
+if (!-d("$qqd/dev/pts")) {  # TODO(pts): Disallow symlinks.
   mkdir("$qqd/dev", 0755);
   mkdir("$qqd/dev/pts", 0755);
   die "$qqin: fatal: not a directory: $qqd/dev/pts\n" if !-d("$qqd/dev/pts");
