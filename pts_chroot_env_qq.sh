@@ -5,6 +5,9 @@
 #
 # This shell script works with bash, zsh, dash and busybox sh.
 #
+# This shell script is affected by the (optional) environment variable
+# __QQPERL__ specifying which Perl interpreter to use.
+#
 
 # Initialize a chroot directory (e.g. /etc/passwd within) for the current
 # user. This is useful so that next time the user can enter the chroot
@@ -210,7 +213,7 @@ __qq_get_cloud_image__() {
     return 101
   fi
 
-  local TYPE_AND_URL="$(BASE_URL="$BASE_URL" ARCH="$ARCH" DISTRO="$DISTRO" exec perl -w -e '
+  local TYPE_AND_URL="$(BASE_URL="$BASE_URL" ARCH="$ARCH" DISTRO="$DISTRO" exec "${__QQPERL__:-perl}" -w -e '
     BEGIN { $^W = 1 }
     use strict;
     use integer;
@@ -337,7 +340,7 @@ __qq_get_cloud_image__() {
     # This is a bit tricy because we want to kill wget and tar (with SIGPIPE
     # by default) as soon as tar prints a filename ending with .img. Regular
     # shell pipelines don't give us this, so we implement it with Perl.
-    local IMG_FILENAME="$(cd "$DIR.get" && URL="$URL" exec perl -we '
+    local IMG_FILENAME="$(cd "$DIR.get" && URL="$URL" exec "${__QQPERL__:-perl}" -we '
         $SIG{PIPE} = "DEFAULT";
         die "qq fatal: open tar.out: $!\n" if !open(TARO, "> tar.out");
         close(TARO);
@@ -475,7 +478,7 @@ __qq_get_docker__() {
     return 101
   fi
 
-  local CONTAINER="qq_get_docker__$(echo "$IMAGE" | perl -pe 's@[^-\w\n]+@__@g')"
+  local CONTAINER="qq_get_docker__$(echo "$IMAGE" | "${__QQPERL__:-perl}" -pe 's@[^-\w\n]+@__@g')"
   docker rm -f "$CONTAINER" >/dev/null 2>&1
   echo "qq: info: downloading Docker image: $IMAGE" >&2
   if ! docker create --name "$CONTAINER" "$IMAGE" >/dev/null; then
@@ -819,7 +822,7 @@ if ($ENV{__QQLCALL__}) {
 } else {
   delete $ENV{LC_ALL};
 }
-delete @ENV{"__QQD__", "__QQPWD__", "__QQOLDPWD__", "__QQPATH__", "__QQHOME__", "__QQLCALL__", "__QQIN__", "__QQPRESUDO__", "__QQUNSHARE__"};
+delete @ENV{"__QQD__", "__QQPWD__", "__QQOLDPWD__", "__QQPERL__", "__QQPATH__", "__QQHOME__", "__QQLCALL__", "__QQIN__", "__QQPRESUDO__", "__QQUNSHARE__"};
 # We must call this before chroot(...), for the correct $^X value.
 my ($syscall_error, $SYS_mount, $SYS_unshare, $SYS_pivot_root, $SYS_fchdir, $SYS_umount2) = detect_linux_syscalls();
 umask(0022);
@@ -1311,7 +1314,7 @@ if (@ARGV and $ARGV[0] eq "cd") {
 
 # exec(...) also prints a detailed error message.
 die "$qqin: fatal: exec $ARGV[0]: $!\n" if !exec(@ARGV);
-' __QQD__="$__QQD__" __QQPWD__="$__QQPWD__" __QQOLDPWD__="$__QQOLDPWD__" __QQPATH__="$PATH" __QQHOME__="$HOME" __QQLCALL__="$LC_ALL" PWD="$PWD" LC_ALL=C exec perl -we'eval$ENV{__QQPRESUDO__};die$@if$@' -- "$@"
+' __QQD__="$__QQD__" __QQPWD__="$__QQPWD__" __QQOLDPWD__="$__QQOLDPWD__" __QQPATH__="$PATH" __QQHOME__="$HOME" __QQLCALL__="$LC_ALL" PWD="$PWD" LC_ALL=C exec "${__QQPERL__:-perl}" -we'eval$ENV{__QQPRESUDO__};die$@if$@' -- "$@"
   # TODO(pts): Add more CPU architectures.
   # TODO(pts): Try nesting use-unshare/use-unshare. Does the MS_PRIVATE mount work on /, and is it effective?
   # TODO(pts): Try nesting of qq with use-unshare/use-sudo and use-unshare/use-unshare. Give recommendations.
